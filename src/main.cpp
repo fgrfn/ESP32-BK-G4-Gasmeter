@@ -2081,29 +2081,32 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     function setTimeRange(hours) {
       timeRangeHours = hours;
       
-      // Update button styles
-      document.querySelectorAll('[id^="btn"]').forEach(btn => {
-        btn.style.background = 'white';
-        btn.style.color = '#667eea';
-      });
-      
-      if (hours === 24) document.getElementById('btn24h').style.background = '#667eea';
-      else if (hours === 168) document.getElementById('btn7d').style.background = '#667eea';
-      else if (hours === 720) document.getElementById('btn30d').style.background = '#667eea';
-      else document.getElementById('btnAll').style.background = '#667eea';
-      
-      document.querySelectorAll('[id^="btn"]').forEach(btn => {
-        if (btn.style.background === 'rgb(102, 126, 234)' || btn.style.background === '#667eea') {
-          btn.style.color = 'white';
+      // Update button styles - Entferne active class von allen Buttons
+      const buttons = ['btn24h', 'btn7d', 'btn30d', 'btnAll'];
+      buttons.forEach(btnId => {
+        const btn = document.getElementById(btnId);
+        if (btn) {
+          btn.classList.remove('active');
         }
       });
       
+      // Setze active class auf den gewählten Button
+      let activeBtn = null;
+      if (hours === 24) activeBtn = document.getElementById('btn24h');
+      else if (hours === 168) activeBtn = document.getElementById('btn7d');
+      else if (hours === 720) activeBtn = document.getElementById('btn30d');
+      else activeBtn = document.getElementById('btnAll');
+      
+      if (activeBtn) activeBtn.classList.add('active');
+      
+      // Filtere die Daten für den Chart
       const filteredData = filterHistoryByTimeRange(fullHistoryData);
       drawChart(filteredData);
       
-      // Update statistics based on filtered time range
+      // Statistiken bleiben IMMER auf Basis der VOLLEN Daten (nicht gefiltert)
+      // Heute, Diese Woche, Dieser Monat sind absolute Werte
       fetch('/api/data').then(r => r.json()).then(data => {
-        updateConsumptionStats(filteredData, data.calorific, data.correction);
+        updateConsumptionStats(fullHistoryData, data.calorific, data.correction);
       }).catch(e => console.error('Fehler beim Laden der Konfiguration:', e));
     }
     
