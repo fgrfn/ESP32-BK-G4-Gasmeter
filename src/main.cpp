@@ -2153,22 +2153,55 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         y: point.volume
       }));
       
+      // Min/Max für x-Achse berechnen
+      const timestamps = chartData.map(d => d.x);
+      const minTime = Math.min(...timestamps);
+      const maxTime = Math.max(...timestamps);
+      
       // Zeitachse-Einheit basierend auf Zeitrange
       let timeUnit = 'hour';
       let displayFormats = {hour: 'HH:mm'};
       let tooltipFormat = 'dd.MM HH:mm';
+      let stepSize = undefined;
       
-      if (timeRangeHours === 0 || timeRangeHours > 720) {
-        timeUnit = 'month';
-        displayFormats = {month: 'MMM yyyy'};
-        tooltipFormat = 'MMM yyyy';
-      } else if (timeRangeHours > 168) {
+      if (timeRangeHours === 0) {
+        // "Alle" - Basierend auf tatsächlicher Datenmenge
+        const daysDiff = (maxTime - minTime) / (1000 * 60 * 60 * 24);
+        if (daysDiff > 180) {
+          timeUnit = 'month';
+          displayFormats = {month: 'MMM yyyy'};
+          tooltipFormat = 'MMM yyyy';
+        } else if (daysDiff > 60) {
+          timeUnit = 'week';
+          displayFormats = {week: 'dd.MM'};
+          tooltipFormat = 'dd.MM.yyyy';
+        } else if (daysDiff > 14) {
+          timeUnit = 'day';
+          displayFormats = {day: 'dd.MM'};
+          tooltipFormat = 'dd.MM.yyyy';
+        } else {
+          timeUnit = 'day';
+          displayFormats = {day: 'dd.MM HH:mm'};
+          tooltipFormat = 'dd.MM HH:mm';
+        }
+      } else if (timeRangeHours >= 720) { // 30 Tage
         timeUnit = 'day';
         displayFormats = {day: 'dd.MM'};
         tooltipFormat = 'dd.MM.yyyy';
-      } else if (timeRangeHours > 24) {
+        stepSize = 3;
+      } else if (timeRangeHours >= 168) { // 7 Tage
         timeUnit = 'day';
-        displayFormats = {day: 'dd.MM HH:mm'};
+        displayFormats = {day: 'dd.MM'};
+        tooltipFormat = 'dd.MM HH:mm';
+        stepSize = 1;
+      } else if (timeRangeHours >= 24) { // 24 Stunden
+        timeUnit = 'hour';
+        displayFormats = {hour: 'HH:mm'};
+        tooltipFormat = 'dd.MM HH:mm';
+        stepSize = 2;
+      } else {
+        timeUnit = 'hour';
+        displayFormats = {hour: 'HH:mm'};
         tooltipFormat = 'dd.MM HH:mm';
       }
       
@@ -2236,15 +2269,20 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
               time: {
                 unit: timeUnit,
                 displayFormats: displayFormats,
-                tooltipFormat: tooltipFormat
+                tooltipFormat: tooltipFormat,
+                stepSize: stepSize
               },
+              min: minTime,
+              max: maxTime,
               grid: {
                 color: 'rgba(0, 0, 0, 0.05)'
               },
               ticks: {
                 color: '#666',
                 maxRotation: 45,
-                minRotation: 0
+                minRotation: 0,
+                autoSkip: true,
+                maxTicksLimit: timeRangeHours === 24 ? 12 : (timeRangeHours === 168 ? 7 : (timeRangeHours === 720 ? 10 : undefined))
               }
             },
             y: {
