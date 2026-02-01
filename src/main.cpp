@@ -1136,16 +1136,6 @@ const char* htmlPage = R"rawliteral(
       
       drawChart(filterHistoryByTimeRange(fullHistoryData));
     }
-    
-    function filterHistoryByTimeRange(history) {
-      if (!history || history.length === 0) return history;
-      if (timeRangeHours === 0) return history; // Alle anzeigen
-      
-      const now = Date.now() / 1000;
-      const cutoff = now - (timeRangeHours * 3600);
-      
-      return history.filter(point => point.timestamp >= cutoff);
-    }
 
     function formatUptime(ms) {
       const s = Math.floor(ms / 1000);
@@ -1265,8 +1255,23 @@ const char* htmlPage = R"rawliteral(
         });
         
         if (closestPoint) {
-          const date = new Date(closestPoint.timestamp * 1000);
-          const timeStr = date.toLocaleString('de-DE', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'});
+          // Prüfen ob Unix-Timestamp oder millis()
+          const isUnixTime = closestPoint.timestamp > 1000000000;
+          let timeStr;
+          
+          if (isUnixTime) {
+            const date = new Date(closestPoint.timestamp * 1000);
+            timeStr = date.toLocaleString('de-DE', {hour: '2-digit', minute: '2-digit', day: '2-digit', month: '2-digit'});
+          } else {
+            // Bei millis() relative Zeit anzeigen
+            const seconds = Math.floor(closestPoint.timestamp / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            if (hours > 0) timeStr = `vor ${hours}h ${minutes % 60}m`;
+            else if (minutes > 0) timeStr = `vor ${minutes}m`;
+            else timeStr = `vor ${seconds}s`;
+          }
+          
           tooltip.innerHTML = `<strong>${closestPoint.volume.toFixed(2)} m³</strong><br>${timeStr}`;
           tooltip.style.display = 'block';
           tooltip.style.left = (e.clientX + 15) + 'px';
@@ -1720,7 +1725,14 @@ void loop() {
             
             // Verlauf speichern mit echter Zeit wenn verfügbar
             lastVolume = volume;
-            unsigned long timestamp = timeInitialized ? time(nullptr) : millis();
+            unsigned long timestamp;
+            if (timeInitialized) {
+              timestamp = time(nullptr);
+            } else {
+              // Fallback: Unix-Timestamp schätzen basierend auf millis()
+              // Verwende einen Basis-Timestamp (01.01.2024) + millis/1000
+              timestamp = 1704067200 + (millis() / 1000);
+            }
             measurements.push_back({timestamp, volume});
             if (measurements.size() > MAX_MEASUREMENTS) {
               measurements.erase(measurements.begin());
