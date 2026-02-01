@@ -1233,15 +1233,7 @@ const char* htmlPage = R"rawliteral(
       </div>
 
       <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
-          <h2 style="margin: 0;">📈 Verlauf & Statistik</h2>
-          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <button onclick="setTimeRange(24)" class="btn" id="btn24h" style="padding: 8px 16px; font-size: 0.9em;">24h</button>
-            <button onclick="setTimeRange(168)" class="btn active" id="btn7d" style="padding: 8px 16px; font-size: 0.9em;">7d</button>
-            <button onclick="setTimeRange(720)" class="btn" id="btn30d" style="padding: 8px 16px; font-size: 0.9em;">30d</button>
-            <button onclick="setTimeRange(0)" class="btn" id="btnAll" style="padding: 8px 16px; font-size: 0.9em;">Alle</button>
-          </div>
-        </div>
+        <h2 style="margin-bottom: 20px;">📈 Verlauf & Statistik</h2>
         
         <!-- Verbrauchsstatistik -->
         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px;">
@@ -1530,7 +1522,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%); border: 1px solid #818cf8; border-radius: 12px; padding: 20px; margin-top: 20px;">
           <div style="color: var(--text-primary); margin-bottom: 12px;"><strong style="color: #818cf8; font-size: 1.1em;">&#128218; Aktuell:</strong></div>
           <div style="color: var(--text-primary); line-height: 1.8;">
-            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">2.0.0</code></div>
+            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">2.0.1</code></div>
             <div style="margin-bottom: 8px;">IP-Adresse: <code id="currentIP3" style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 4px 10px; border-radius: 6px; font-weight: bold;">Lädt...</code></div>
             <div>Hostname: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">esp32-gas.local</code></div>
           </div>
@@ -1542,7 +1534,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
   <script>
     let currentPage = 'dashboard';
     let updateInterval = null;
-    let timeRangeHours = 168;
     let fullHistoryData = [];
 
     // Dark Mode initialisieren
@@ -1564,7 +1555,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       
       // Chart neu zeichnen fr Theme-Anpassung
       if (currentPage === 'dashboard' && fullHistoryData.length > 0) {
-        drawChart(filterHistoryByTimeRange(fullHistoryData));
+        drawChart(fullHistoryData);
       }
     }
 
@@ -1812,7 +1803,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
             }
             fullHistoryData = hist;
             updateConsumptionStats(hist, data.calorific, data.correction);
-            drawChart(filterHistoryByTimeRange(hist));
+            drawChart(hist);
           }
         })
         .catch(e => {
@@ -1841,23 +1832,58 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       }
       
       const now = Date.now() / 1000;
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      const todayTimestamp = startOfToday.getTime() / 1000;
-      const weekAgo = now - (7 * 24 * 3600);
-      const monthAgo = now - (30 * 24 * 3600);
-      
-      // Finde Messwerte
-      const todayStart = history.find(m => m.timestamp >= todayTimestamp);
-      const weekStart = history.find(m => m.timestamp >= weekAgo);
-      const monthStart = history.find(m => m.timestamp >= monthAgo);
       const latest = history[history.length - 1];
       const oldest = history[0];
       
+      // Start of today (00:00:00)
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const todayTimestamp = startOfToday.getTime() / 1000;
+      
+      // Start of this week (Monday 00:00:00)
+      const startOfWeek = new Date();
+      const dayOfWeek = startOfWeek.getDay(); // 0 = Sonntag, 1 = Montag
+      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      startOfWeek.setDate(startOfWeek.getDate() - daysToMonday);
+      startOfWeek.setHours(0, 0, 0, 0);
+      const weekTimestamp = startOfWeek.getTime() / 1000;
+      
+      // Start of this month (1st day 00:00:00)
+      const startOfMonth = new Date();
+      startOfMonth.setDate(1);
+      startOfMonth.setHours(0, 0, 0, 0);
+      const monthTimestamp = startOfMonth.getTime() / 1000;
+      
+      // Finde den letzten Messwert VOR dem jeweiligen Zeitpunkt
+      let todayStart = null;
+      let weekStart = null;
+      let monthStart = null;
+      
+      // Suche rückwärts nach dem letzten Wert vor dem Zeitpunkt
+      for (let i = history.length - 1; i >= 0; i--) {
+        if (!todayStart && history[i].timestamp < todayTimestamp) {
+          todayStart = history[i];
+        }
+        if (!weekStart && history[i].timestamp < weekTimestamp) {
+          weekStart = history[i];
+        }
+        if (!monthStart && history[i].timestamp < monthTimestamp) {
+          monthStart = history[i];
+        }
+        if (todayStart && weekStart && monthStart) break;
+      }
+      
+      // Falls kein Wert vor dem Zeitpunkt existiert, nutze den ersten verfügbaren
+      if (!todayStart) todayStart = history[0];
+      if (!weekStart) weekStart = history[0];
+      if (!monthStart) monthStart = history[0];
+      
       // Berechne Differenzen
-      const todayDiff = todayStart ? latest.volume - todayStart.volume : 0;
-      const weekDiff = weekStart ? latest.volume - weekStart.volume : 0;
-      const monthDiff = monthStart ? latest.volume - monthStart.volume : 0;
+      const todayDiff = latest.volume - todayStart.volume;
+      const weekDiff = latest.volume - weekStart.volume;
+      const monthDiff = latest.volume - monthStart.volume;
+      
+      // Durchschnitt pro Tag über die gesamte Historie
       const totalDiff = latest.volume - oldest.volume;
       const daysSinceStart = (latest.timestamp - oldest.timestamp) / 86400;
       const avgPerDay = daysSinceStart > 0 ? totalDiff / daysSinceStart : 0;
@@ -2078,48 +2104,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       });
     }
 
-    function setTimeRange(hours) {
-      timeRangeHours = hours;
-      
-      // Update button styles - Entferne active class von allen Buttons
-      const buttons = ['btn24h', 'btn7d', 'btn30d', 'btnAll'];
-      buttons.forEach(btnId => {
-        const btn = document.getElementById(btnId);
-        if (btn) {
-          btn.classList.remove('active');
-        }
-      });
-      
-      // Setze active class auf den gewählten Button
-      let activeBtn = null;
-      if (hours === 24) activeBtn = document.getElementById('btn24h');
-      else if (hours === 168) activeBtn = document.getElementById('btn7d');
-      else if (hours === 720) activeBtn = document.getElementById('btn30d');
-      else activeBtn = document.getElementById('btnAll');
-      
-      if (activeBtn) activeBtn.classList.add('active');
-      
-      // Filtere die Daten für den Chart
-      const filteredData = filterHistoryByTimeRange(fullHistoryData);
-      drawChart(filteredData);
-      
-      // Statistiken bleiben IMMER auf Basis der VOLLEN Daten (nicht gefiltert)
-      // Heute, Diese Woche, Dieser Monat sind absolute Werte
-      fetch('/api/data').then(r => r.json()).then(data => {
-        updateConsumptionStats(fullHistoryData, data.calorific, data.correction);
-      }).catch(e => console.error('Fehler beim Laden der Konfiguration:', e));
-    }
-    
-    function filterHistoryByTimeRange(history) {
-      if (!history || history.length === 0) return history;
-      if (timeRangeHours === 0) return history; // Alle anzeigen
-      
-      const now = Date.now() / 1000;
-      const cutoff = now - (timeRangeHours * 3600);
-      
-      return history.filter(point => point.timestamp >= cutoff);
-    }
-
     function formatUptime(ms) {
       const s = Math.floor(ms / 1000);
       const m = Math.floor(s / 60);
@@ -2161,51 +2145,39 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       const minTime = Math.min(...timestamps);
       const maxTime = Math.max(...timestamps);
       
-      // Zeitachse-Einheit basierend auf Zeitrange
+      // Zeitachse-Einheit automatisch basierend auf Datenmenge
+      const daysDiff = (maxTime - minTime) / (1000 * 60 * 60 * 24);
       let timeUnit = 'hour';
       let displayFormats = {hour: 'HH:mm'};
       let tooltipFormat = 'dd.MM HH:mm';
       let stepSize = undefined;
+      let maxTicksLimit = undefined;
       
-      if (timeRangeHours === 0) {
-        // "Alle" - Basierend auf tatsächlicher Datenmenge
-        const daysDiff = (maxTime - minTime) / (1000 * 60 * 60 * 24);
-        if (daysDiff > 180) {
-          timeUnit = 'month';
-          displayFormats = {month: 'MMM yyyy'};
-          tooltipFormat = 'MMM yyyy';
-        } else if (daysDiff > 60) {
-          timeUnit = 'week';
-          displayFormats = {week: 'dd.MM'};
-          tooltipFormat = 'dd.MM.yyyy';
-        } else if (daysDiff > 14) {
-          timeUnit = 'day';
-          displayFormats = {day: 'dd.MM'};
-          tooltipFormat = 'dd.MM.yyyy';
-        } else {
-          timeUnit = 'day';
-          displayFormats = {day: 'dd.MM HH:mm'};
-          tooltipFormat = 'dd.MM HH:mm';
-        }
-      } else if (timeRangeHours >= 720) { // 30 Tage
+      if (daysDiff > 180) {
+        timeUnit = 'month';
+        displayFormats = {month: 'MMM yyyy'};
+        tooltipFormat = 'MMM yyyy';
+        maxTicksLimit = 12;
+      } else if (daysDiff > 60) {
+        timeUnit = 'week';
+        displayFormats = {week: 'dd.MM'};
+        tooltipFormat = 'dd.MM.yyyy';
+        maxTicksLimit = 10;
+      } else if (daysDiff > 14) {
         timeUnit = 'day';
         displayFormats = {day: 'dd.MM'};
         tooltipFormat = 'dd.MM.yyyy';
-        stepSize = 3;
-      } else if (timeRangeHours >= 168) { // 7 Tage
+        maxTicksLimit = 15;
+      } else if (daysDiff > 2) {
         timeUnit = 'day';
-        displayFormats = {day: 'dd.MM'};
+        displayFormats = {day: 'dd.MM HH:mm'};
         tooltipFormat = 'dd.MM HH:mm';
-        stepSize = 1;
-      } else if (timeRangeHours >= 24) { // 24 Stunden
-        timeUnit = 'hour';
-        displayFormats = {hour: 'HH:mm'};
-        tooltipFormat = 'dd.MM HH:mm';
-        stepSize = 2;
+        maxTicksLimit = 15;
       } else {
         timeUnit = 'hour';
         displayFormats = {hour: 'HH:mm'};
         tooltipFormat = 'dd.MM HH:mm';
+        maxTicksLimit = 24;
       }
       
       // Altes Chart zerstören
@@ -2285,7 +2257,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
                 maxRotation: 45,
                 minRotation: 0,
                 autoSkip: true,
-                maxTicksLimit: timeRangeHours === 24 ? 12 : (timeRangeHours === 168 ? 7 : (timeRangeHours === 720 ? 10 : undefined))
+                maxTicksLimit: maxTicksLimit
               }
             },
             y: {
