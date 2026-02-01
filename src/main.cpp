@@ -2157,27 +2157,27 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         timeUnit = 'month';
         displayFormats = {month: 'MMM yyyy'};
         tooltipFormat = 'MMM yyyy';
-        maxTicksLimit = 12;
+        maxTicksLimit = 20;
       } else if (daysDiff > 60) {
         timeUnit = 'week';
         displayFormats = {week: 'dd.MM'};
         tooltipFormat = 'dd.MM.yyyy';
-        maxTicksLimit = 10;
+        maxTicksLimit = 20;
       } else if (daysDiff > 14) {
         timeUnit = 'day';
         displayFormats = {day: 'dd.MM'};
         tooltipFormat = 'dd.MM.yyyy';
-        maxTicksLimit = 15;
+        maxTicksLimit = 30;
       } else if (daysDiff > 2) {
-        timeUnit = 'day';
-        displayFormats = {day: 'dd.MM HH:mm'};
+        timeUnit = 'hour';
+        displayFormats = {hour: 'dd.MM HH:mm'};
         tooltipFormat = 'dd.MM HH:mm';
-        maxTicksLimit = 15;
+        maxTicksLimit = 25;
       } else {
         timeUnit = 'hour';
         displayFormats = {hour: 'HH:mm'};
         tooltipFormat = 'dd.MM HH:mm';
-        maxTicksLimit = 24;
+        maxTicksLimit = 48;
       }
       
       // Altes Chart zerstören
