@@ -1,4 +1,4 @@
-name: Release
+name: Tagged Release
 
 on:
   push:
@@ -8,6 +8,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     
     steps:
     - name: Checkout code
@@ -50,7 +52,7 @@ jobs:
         cp .pio/build/esp32dev/firmware.bin release/BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
         
     - name: Create Release
-      uses: softprops/action-gh-release@v1
+      uses: softprops/action-gh-release@v2
       with:
         files: |
           release/BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
