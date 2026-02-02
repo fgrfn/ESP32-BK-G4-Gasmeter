@@ -20,6 +20,24 @@ jobs:
     - name: Extract version from code
       id: get_version
       run: |
+        VERSION=$(grep 'const char\* FIRMWARE_VERSION = ' src/main.cpp | sed 's/.*"\(.*\)".*/\1/')
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "📌 Detected version: $VERSION"
+    
+    - name: Check if tag exists
+      id: check_tag
+      run: |
+        VERSION="${{ steps.get_version.outputs.VERSION }}"
+        echo "🔍 Checking if tag v$VERSION exists on remote..."
+        if git ls-remote --tags origin | grep -q "refs/tags/v$VERSION"; then
+          echo "exists=true" >> $GITHUB_OUTPUT
+          echo "⚠️ Tag v$VERSION already exists, skipping release"
+        else
+          echo "exists=false" >> $GITHUB_OUTPUT
+          echo "✅ Tag v$VERSION does not exist, will create release"
+        fi
+      
+    - name: Set up Python
       if: steps.check_tag.outputs.exists == 'false'
       uses: actions/setup-python@v5
       with:
@@ -44,13 +62,14 @@ jobs:
         
     - name: Build firmware
       if: steps.check_tag.outputs.exists == 'false'
-          ~/.platformio
-          .pio
-        key: ${{ runner.os }}-pio-${{ hashFiles('**/platformio.ini') }}
+      run: pio run
+      
+    - name: Rename firmware binary
       if: steps.check_tag.outputs.exists == 'false'
       run: |
         mkdir -p release
         cp .pio/build/esp32dev/firmware.bin release/BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
+        echo "📦 Created: BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin"
     
     - name: Create tag
       if: steps.check_tag.outputs.exists == 'false'
@@ -59,6 +78,7 @@ jobs:
         git config user.email "github-actions[bot]@users.noreply.github.com"
         git tag -a "v${{ steps.get_version.outputs.VERSION }}" -m "Release v${{ steps.get_version.outputs.VERSION }}"
         git push origin "v${{ steps.get_version.outputs.VERSION }}"
+        echo "🏷️ Created and pushed tag v${{ steps.get_version.outputs.VERSION }}"
         
     - name: Create Release
       if: steps.check_tag.outputs.exists == 'false'
@@ -69,34 +89,27 @@ jobs:
         files: |
           release/BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
         body: |
-          ## Release v${{ steps.get_version.outputs.VERSION }}
+          ## 🎉 Release v${{ steps.get_version.outputs.VERSION }}
           
-          ### Installation
-          Flash die Firmware mit:
+          ### 📥 Installation
+          
+          **Via esptool.py:**
           ```bash
           esptool.py --port /dev/ttyUSB0 write_flash 0x10000 BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
           ```
           
-          Oder nutze OTA-Updates über die Web-Oberfläche.
+          **Via OTA:**
+          1. Öffne WebUI des ESP32
+          2. Gehe zu "Firmware Update"
+          3. Wähle die `.bin` Datei aus
+          4. Klicke auf "Update starten"
           
-          ### Änderungen
-          Commit: ${{ github.sha }}AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
-        
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: |
-          release/BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
-        body: |
-          ## Release ${{ steps.get_version.outputs.VERSION }}
+          ### 📝 Änderungen
+          Commit: ${{ github.sha }}
           
-          ### Installation
-          Flash die Firmware mit:
-          ```bash
-          esptool.py --port /dev/ttyUSB0 write_flash 0x10000 BK-G4AT2MQTT-${{ steps.get_version.outputs.VERSION }}.bin
-          ```
+          ---
           
-          Oder nutze OTA-Updates über die Web-Oberfläche.
+          _Automatisch erstellt durch GitHub Actions_
           
         draft: false
         prerelease: false
