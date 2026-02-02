@@ -8,6 +8,9 @@
 #include <time.h>
 #include <vector>
 
+// ---- Firmware Version ----
+const char* FIRMWARE_VERSION = "1.0.0";
+
 // ---- Konfiguration ----
 char ssid[32] = "SSID";
 char password[64] = "Password";
@@ -355,7 +358,7 @@ void reconnect() {
 void sendHomeAssistantDiscovery() {
   if (haDiscoverySent) return;
   
-  String baseDevice = "{\"identifiers\":[\"esp32_gas_meter\"],\"name\":\"ESP32 Gaszähler\",\"model\":\"BK-G4 M-Bus Gateway\",\"manufacturer\":\"ESP32\",\"sw_version\":\"1.2\",\"configuration_url\":\"http://" + WiFi.localIP().toString() + "\"}";
+  String baseDevice = "{\"identifiers\":[\"esp32_gas_meter\"],\"name\":\"ESP32 Gaszähler\",\"model\":\"BK-G4 M-Bus Gateway\",\"manufacturer\":\"ESP32\",\"sw_version\":\"" + String(FIRMWARE_VERSION) + "\",\"configuration_url\":\"http://" + WiFi.localIP().toString() + "\"}";
   
   // 1. Gas Volume Sensor (Main) - Energy Dashboard Ready
   String topic1 = "homeassistant/sensor/gaszaehler_volume/config";
@@ -610,7 +613,7 @@ const char* htmlPage = R"rawliteral(
   <div class="container">
     <div class="header">
       <h1>⚡ Gaszähler Monitor</h1>
-      <p>ESP32 M-Bus Gateway</p>
+      <p>ESP32 M-Bus Gateway v%VERSION%</p>
       <div id="apModeWarning" style="display: none; background: #ff9800; color: white; padding: 10px; border-radius: 8px; margin-top: 10px;">
         ⚠️ <strong>Access Point Modus aktiv!</strong><br>
         Bitte konfigurieren Sie WLAN unter "Konfiguration" und speichern Sie die Einstellungen.
@@ -1305,7 +1308,9 @@ const char* htmlPage = R"rawliteral(
 )rawliteral";
 
 void handleRoot() {
-  server.send(200, "text/html", htmlPage);
+  String html = String(htmlPage);
+  html.replace("%VERSION%", FIRMWARE_VERSION);
+  server.send(200, "text/html", html);
 }
 
 void handleAPI() {
@@ -1534,7 +1539,7 @@ void setupWebServer() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("\n\nESP32 Gaszähler Gateway v1.0");
+  Serial.println("\n\nESP32 Gaszähler Gateway v" + String(FIRMWARE_VERSION));
   Serial.println("================================");
   
   // Status LED

@@ -254,7 +254,54 @@ Bei WLAN-Problemen:
 
 ---
 
-## 👏 Credits
+## � Releases und Versionierung
+
+Dieses Projekt verwendet **Semantic Versioning** nach dem Format `MAJOR.MINOR.PATCH` (z.B. v1.0.0).
+
+### Neue Version erstellen
+
+1. **Erhöhe die Version** in [src/main.cpp](src/main.cpp#L12):
+   ```cpp
+   const char* FIRMWARE_VERSION = "1.0.0";
+   ```
+
+2. **Commit und Tag erstellen**:
+   ```bash
+   git add src/main.cpp
+   git commit -m "Bump version to 1.0.0"
+   git tag v1.0.0
+   git push origin main --tags
+   ```
+
+3. **Automatisches Release**: Der GitHub Actions Workflow erstellt automatisch:
+   - Kompilierte Firmware-Binary (`BK-G4AT2MQTT-1.0.0.bin`)
+   - GitHub Release mit Download-Link
+   - Installations-Anleitung
+
+### Versionsrichtlinien
+
+- **MAJOR** (1.x.x): Breaking Changes, API-Änderungen
+- **MINOR** (x.1.x): Neue Features, abwärtskompatibel
+- **PATCH** (x.x.1): Bugfixes, kleinere Verbesserungen
+
+### Installation von Releases
+
+Lade die Firmware-Binary vom [Releases-Bereich](https://github.com/BennoB666/BK-G4AT2MQTT/releases) herunter:
+
+**Erstinstallation (USB):**
+```bash
+esptool.py --port /dev/ttyUSB0 write_flash 0x10000 BK-G4AT2MQTT-1.0.0.bin
+```
+
+**OTA-Update:**
+1. Öffne WebUI des ESP32
+2. Gehe zu "Konfiguration" → "System"
+3. Wähle die `.bin` Datei aus
+4. Klicke auf "Update starten"
+
+---
+
+## �👏 Credits
 
 **Original Projekt:** [BennoB666](https://github.com/BennoB666) - Danke für das Basis-Projekt!
 
