@@ -11,7 +11,7 @@
 #include <vector>
 
 // ---- Firmware Version ----
-const char* FIRMWARE_VERSION = "1.0.0";
+const char* FIRMWARE_VERSION = "2.0.2";
 
 // ---- ANSI Farb-Codes für Serial Monitor (deaktiviert für reine Text-Ausgabe) ----
 #define ANSI_RESET   ""
