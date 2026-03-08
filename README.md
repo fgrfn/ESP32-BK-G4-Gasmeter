@@ -5,7 +5,7 @@
 
 Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **Honeywell BK-G4AT Gaszählers** mit vollständiger MQTT Integration und moderner Web-Oberfläche.
 
-[![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen.svg)](https://github.com/YOUR-USERNAME/BK-G4AT2MQTT/releases)
+[![Version](https://img.shields.io/badge/Version-2.0.4-brightgreen.svg)](https://github.com/fgrfn/BK-G4AT2MQTT/releases)
 [![Platform](https://img.shields.io/badge/ESP32-DevKit%20V1-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Framework](https://img.shields.io/badge/Arduino-Framework-teal.svg)](https://www.arduino.cc/)
 [![MQTT](https://img.shields.io/badge/MQTT-3.1.1-orange.svg)](https://mqtt.org/)
@@ -130,7 +130,7 @@ Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **
 
 ```bash
 # Repository klonen
-git clone https://github.com/YOUR-USERNAME/BK-G4AT2MQTT.git
+git clone https://github.com/fgrfn/BK-G4AT2MQTT.git
 cd BK-G4AT2MQTT
 
 # Dependencies werden automatisch installiert
@@ -363,8 +363,8 @@ Siehe [LICENSE](LICENSE) Datei für Details.
 
 ## 📞 Support
 
-**Issues:** [GitHub Issues](https://github.com/YOUR-USERNAME/BK-G4AT2MQTT/issues)  
-**Diskussionen:** [GitHub Discussions](https://github.com/YOUR-USERNAME/BK-G4AT2MQTT/discussions)
+**Issues:** [GitHub Issues](https://github.com/fgrfn/BK-G4AT2MQTT/issues)  
+**Diskussionen:** [GitHub Discussions](https://github.com/fgrfn/BK-G4AT2MQTT/discussions)
 
 ---
 

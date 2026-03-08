@@ -57,7 +57,7 @@ bool haDiscoverySent = false;
 // ---- WiFi AP Mode ----
 bool apMode = false;
 const char* ap_ssid = "ESP32-GasZaehler";
-const char* ap_password = ""; // Mindestens 8 Zeichen
+const char* ap_password = "12345678"; // Mindestens 8 Zeichen (bei Bedarf in Config ändern)
 const unsigned long AP_MODE_TIMEOUT = 300000; // 5 Minuten im AP-Modus
 
 // ---- Status LED ----
@@ -506,8 +506,7 @@ void startAPMode() {
   Serial.println("========================================");
   Serial.print("SSID: ");
   Serial.println(ap_ssid);
-  Serial.print("Passwort: ");
-  Serial.println(ap_password);
+  Serial.println("Passwort: [gesetzt]");
   Serial.print("IP-Adresse: ");
   Serial.println(IP);
   Serial.println("\nVerbinden Sie sich mit dem Access Point");
@@ -1153,6 +1152,7 @@ const char* htmlPage = R"rawliteral(
 <body>
   <div class="container">
     <div class="header">
+      <button class="theme-toggle" id="themeToggle" onclick="toggleDarkMode()" title="Dark/Light Mode">🌙</button>
       <h1>⚡ Gaszähler Monitor</h1>
       <p>ESP32 M-Bus Gateway v%VERSION%</p>
       <div id="apModeWarning" style="display: none; background: #ff9800; color: white; padding: 10px; border-radius: 8px; margin-top: 10px;">
@@ -1524,7 +1524,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%); border: 1px solid #818cf8; border-radius: 12px; padding: 20px; margin-top: 20px;">
           <div style="color: var(--text-primary); margin-bottom: 12px;"><strong style="color: #818cf8; font-size: 1.1em;">&#128218; Aktuell:</strong></div>
           <div style="color: var(--text-primary); line-height: 1.8;">
-            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">2.0.1</code></div>
+            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">%VERSION%</code></div>
             <div style="margin-bottom: 8px;">IP-Adresse: <code id="currentIP3" style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 4px 10px; border-radius: 6px; font-weight: bold;">Lädt...</code></div>
             <div>Hostname: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">esp32-gas.local</code></div>
           </div>
@@ -1541,21 +1541,23 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     // Dark Mode initialisieren
     function initDarkMode() {
       const darkMode = localStorage.getItem('darkMode') !== 'false'; // Default: true
+      const themeBtn = document.getElementById('themeToggle');
       if (darkMode) {
         document.body.classList.add('dark-mode');
-        document.getElementById('themeToggle').textContent = '';
+        if (themeBtn) themeBtn.textContent = '🌙';
         localStorage.setItem('darkMode', 'true');
       } else {
-        document.getElementById('themeToggle').textContent = '';
+        if (themeBtn) themeBtn.textContent = '☀️';
       }
     }
 
     function toggleDarkMode() {
       const isDark = document.body.classList.toggle('dark-mode');
-      localStorage.setItem('darkMode', isDark);
-      document.getElementById('themeToggle').textContent = isDark ? '' : '';
+      localStorage.setItem('darkMode', isDark ? 'true' : 'false');
+      const themeBtn = document.getElementById('themeToggle');
+      if (themeBtn) themeBtn.textContent = isDark ? '🌙' : '☀️';
       
-      // Chart neu zeichnen fr Theme-Anpassung
+      // Chart neu zeichnen für Theme-Anpassung
       if (currentPage === 'dashboard' && fullHistoryData.length > 0) {
         drawChart(fullHistoryData);
       }
@@ -2280,11 +2282,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     }
     
     // Chart.js kümmert sich um Tooltips
-    document.addEventListener('DOMContentLoaded', function() {
-        chartZoom *= delta;
-        chartZoom = Math.max(0.5, Math.min(3, chartZoom));
-        drawChart(filterHistoryByTimeRange(fullHistoryData));
-    });
 
     // Diagnose-Funktionen
     function testMQTT() {
@@ -2519,7 +2516,12 @@ void handleConfigGet() {
   json += "\"mqtt_topic\":\"" + String(mqtt_topic) + "\",";
   json += "\"poll_interval\":" + String(poll_interval / 1000) + ",";
   json += "\"gas_calorific\":" + String(gas_calorific_value, 6) + ",";
-  json += "\"gas_correction\":" + String(gas_correction_factor, 6);
+  json += "\"gas_correction\":" + String(gas_correction_factor, 6) + ",";
+  json += "\"use_static_ip\":" + String(use_static_ip ? "true" : "false") + ",";
+  json += "\"static_ip\":\"" + String(static_ip) + "\",";
+  json += "\"static_gateway\":\"" + String(static_gateway) + "\",";
+  json += "\"static_subnet\":\"" + String(static_subnet) + "\",";
+  json += "\"static_dns\":\"" + String(static_dns) + "\"";
   json += "}";
   server.send(200, "application/json", json);
 }
