@@ -667,7 +667,7 @@ void setupOTA() {
 }
 
 // ---- WebServer Handler ----
-const char* htmlPage = R"rawliteral(
+const char htmlPage[] PROGMEM = R"rawliteral(
 <!DOCTYPE html>
 <html lang="de">
 <head>
@@ -2466,8 +2466,8 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
 )rawliteral";
 
 void handleRoot() {
-  // Direkte Auslieferung ohne große String-Kopie (stabiler auf ESP32)
-  server.send(200, "text/html", htmlPage);
+  // Große HTML-Seite direkt aus Flash/PROGMEM ausliefern
+  server.send_P(200, "text/html", htmlPage);
 }
 
 void handleAPI() {
