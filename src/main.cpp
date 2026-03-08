@@ -1273,15 +1273,6 @@ const char htmlPage[] PROGMEM = R"rawliteral(
           </div>
         </div>
         
-        <div style="display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 12px 0;">
-          <button class="btn" id="rangeToday" onclick="setTimeRange('today')" style="padding: 8px 12px; font-size: 0.85em;">Heute</button>
-          <button class="btn" id="rangeYesterday" onclick="setTimeRange('yesterday')" style="padding: 8px 12px; font-size: 0.85em;">Gestern</button>
-          <button class="btn" id="range7d" onclick="setTimeRange('7d')" style="padding: 8px 12px; font-size: 0.85em;">7 Tage</button>
-          <button class="btn" id="range30d" onclick="setTimeRange('30d')" style="padding: 8px 12px; font-size: 0.85em;">1 Monat</button>
-          <button class="btn" id="range1y" onclick="setTimeRange('1y')" style="padding: 8px 12px; font-size: 0.85em;">1 Jahr</button>
-          <button class="btn" id="rangeAll" onclick="setTimeRange('all')" style="padding: 8px 12px; font-size: 0.85em;">Alle</button>
-        </div>
-
         <div class="chart-container" id="chartContainer">
           <canvas id="chart" class="chart"></canvas>
           <div id="chartTooltip" class="chart-tooltip"></div>
@@ -1559,7 +1550,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     let updateInterval = null;
     let fullHistoryData = [];
     let lastHistoryKey = '';
-    let currentTimeRange = 'today';
 
     // Dark Mode initialisieren
     function initDarkMode() {
@@ -1835,8 +1825,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
             const lastPoint = hist[hist.length - 1];
             const historyKey = `${hist.length}:${lastPoint.timestamp}:${lastPoint.volume}`;
             if (historyKey !== lastHistoryKey) {
-              const filtered = filterHistoryByTimeRange(hist, currentTimeRange);
-              drawChart(filtered);
+              drawChart(hist);
               lastHistoryKey = historyKey;
             }
           }
@@ -2147,43 +2136,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       if (d > 0) return d + 'd ' + (h % 24) + 'h';
       if (h > 0) return h + 'h ' + (m % 60) + 'm';
       return m + 'm ' + (s % 60) + 's';
-    }
-
-    function filterHistoryByTimeRange(history, range) {
-      if (!history || history.length === 0 || range === 'all') return history || [];
-
-      const now = Math.floor(Date.now() / 1000);
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      const todayTs = Math.floor(startOfToday.getTime() / 1000);
-
-      if (range === 'today') {
-        return history.filter(p => p.timestamp >= todayTs);
-      }
-      if (range === 'yesterday') {
-        const startYesterday = todayTs - 86400;
-        return history.filter(p => p.timestamp >= startYesterday && p.timestamp < todayTs);
-      }
-      if (range === '7d') return history.filter(p => p.timestamp >= (now - 7 * 86400));
-      if (range === '30d') return history.filter(p => p.timestamp >= (now - 30 * 86400));
-      if (range === '1y') return history.filter(p => p.timestamp >= (now - 365 * 86400));
-
-      return history;
-    }
-
-    function setTimeRange(range) {
-      currentTimeRange = range;
-      const ids = ['rangeToday','rangeYesterday','range7d','range30d','range1y','rangeAll'];
-      ids.forEach(id => {
-        const btn = document.getElementById(id);
-        if (btn) btn.style.opacity = '0.75';
-      });
-      const map = { today:'rangeToday', yesterday:'rangeYesterday', '7d':'range7d', '30d':'range30d', '1y':'range1y', all:'rangeAll' };
-      const active = document.getElementById(map[range]);
-      if (active) active.style.opacity = '1';
-
-      const filtered = filterHistoryByTimeRange(fullHistoryData, currentTimeRange);
-      drawChart(filtered);
     }
 
     let myChart = null;
@@ -2513,7 +2465,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
 
     // Dark Mode initialisieren
     initDarkMode();
-    setTimeRange('today');
     
     updateData();
     updateInterval = setInterval(updateData, 5000);
