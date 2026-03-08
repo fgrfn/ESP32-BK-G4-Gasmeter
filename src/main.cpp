@@ -11,7 +11,7 @@
 #include <vector>
 
 // ---- Firmware Version ----
-const char* FIRMWARE_VERSION = "2.0.4";
+const char* FIRMWARE_VERSION = "2.0.5";
 
 // ---- ANSI Farb-Codes für Serial Monitor (deaktiviert für reine Text-Ausgabe) ----
 #define ANSI_RESET   ""
@@ -2653,197 +2653,126 @@ void handleErrorReset() {
   server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Fehlerstatistik zurückgesetzt\"}");
 }
 
+
+static bool jsonExtractString(const String& body, const char* key, String& out) {
+  String pattern = String(""") + key + "":"";
+  int idx = body.indexOf(pattern);
+  if (idx < 0) return false;
+  int start = idx + pattern.length();
+  int end = body.indexOf(""", start);
+  if (end < 0) return false;
+  out = body.substring(start, end);
+  return true;
+}
+
+static bool jsonExtractNumber(const String& body, const char* key, String& out) {
+  String pattern = String(""") + key + "":";
+  int idx = body.indexOf(pattern);
+  if (idx < 0) return false;
+  int start = idx + pattern.length();
+  while (start < body.length() && (body.charAt(start) == ' ')) start++;
+  int end = start;
+  while (end < body.length()) {
+    char c = body.charAt(end);
+    if ((c >= '0' && c <= '9') || c == '.' || c == '-') end++;
+    else break;
+  }
+  if (end <= start) return false;
+  out = body.substring(start, end);
+  out.trim();
+  return out.length() > 0;
+}
+
+static bool jsonExtractBool(const String& body, const char* key, bool& out) {
+  String pattern = String(""") + key + "":";
+  int idx = body.indexOf(pattern);
+  if (idx < 0) return false;
+  int start = idx + pattern.length();
+  while (start < body.length() && body.charAt(start) == ' ') start++;
+  if (body.startsWith("true", start)) { out = true; return true; }
+  if (body.startsWith("false", start)) { out = false; return true; }
+  return false;
+}
+
 void handleConfigPost() {
   Serial.println("DEBUG: handleConfigPost() aufgerufen");
   Serial.println("DEBUG: hasArg('plain') = " + String(server.hasArg("plain") ? "true" : "false"));
   Serial.println("DEBUG: args() = " + String(server.args()));
-  
-  if (server.hasArg("plain")) {
-    String body = server.arg("plain");
-    Serial.println("DEBUG: Body length = " + String(body.length()));
-    // Debug: show incoming POST body (truncated) to help diagnose client-side issues
-    String tb = body;
-    if (tb.length() > 300) tb = tb.substring(0, 300) + "...";
-    Serial.println("DEBUG POST /api/config body: " + tb);
-    
-    // Einfaches JSON Parsing (fr kleine Daten ausreichend)
-    int idx;
-    
-    idx = body.indexOf("\"ssid\":\"");
-    if (idx >= 0) {
-      int start = idx + 8;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(ssid, sizeof(ssid));
-    }
-    
-    idx = body.indexOf("\"password\":\"");
-    if (idx >= 0) {
-      int start = idx + 12;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(password, sizeof(password));
-    }
-    
-    idx = body.indexOf("\"hostname\":\"");
-    if (idx >= 0) {
-      int start = idx + 12;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(hostname, sizeof(hostname));
-    }
-    
-    idx = body.indexOf("\"mqtt_server\":\"");
-    if (idx >= 0) {
-      int start = idx + 15;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_server, sizeof(mqtt_server));
-    }
-    
-    idx = body.indexOf("\"mqtt_port\":");
-    if (idx >= 0) {
-      int start = idx + 12;
-      int end = body.indexOf(",", start);
-      if (end < 0) end = body.indexOf("}", start);
-      mqtt_port = body.substring(start, end).toInt();
-    }
-    
-    idx = body.indexOf("\"mqtt_user\":\"");
-    if (idx >= 0) {
-      int start = idx + 13;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_user, sizeof(mqtt_user));
-    }
-    
-    idx = body.indexOf("\"mqtt_pass\":\"");
-    if (idx >= 0) {
-      int start = idx + 13;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_pass, sizeof(mqtt_pass));
-    }
-    
-    idx = body.indexOf("\"mqtt_topic\":\"");
-    if (idx >= 0) {
-      int start = idx + 14;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_topic, sizeof(mqtt_topic));
-    }
-    
-    idx = body.indexOf("\"poll_interval\":");
-    if (idx >= 0) {
-      int start = idx + 16; // Nach "poll_interval":
-      // Überspringe Leerzeichen und Doppelpunkt
-      while (start < body.length() && (body.charAt(start) == ':' || body.charAt(start) == ' ')) start++;
-      
-      int end = start;
-      // Finde das Ende der Zahl (Komma, Leerzeichen oder schließende Klammer)
-      while (end < body.length() && body.charAt(end) >= '0' && body.charAt(end) <= '9') end++;
-      
-      String valueStr = body.substring(start, end);
-      valueStr.trim();
-      int seconds = valueStr.toInt();
-      
-      Serial.println("DEBUG: Parsing poll_interval: start=" + String(start) + " end=" + String(end) + " valueStr='" + valueStr + "' seconds=" + String(seconds));
-      
-      // Akzeptiere nur gültige Bereiche (10s .. 300s). Bei ungültigen/fehlenden Werten
-      // wird der bisherige poll_interval nicht überschrieben.
-      if (seconds >= 10 && seconds <= 300) {
-        Serial.println("DEBUG: poll_interval aus JSON: " + valueStr + " -> " + String(seconds) + " Sekunden");
-        poll_interval = (unsigned long)seconds * 1000UL; // Sekunden -> ms
-        if (poll_interval < 10000UL) poll_interval = 10000UL; // Minimum 10s (safety)
-        if (poll_interval > 300000UL) poll_interval = 300000UL; // Maximum 5min
-        Serial.println("DEBUG: poll_interval nach Validierung: " + String(poll_interval) + " ms");
 
-        // Persistiere sofort, um sicherzustellen dass der Wert vor dem Neustart
-        // in den Preferences steht (reduziert Race-Condition vor saveConfig()).
-        preferences.begin("gas-config", false);
-        size_t written = preferences.putULong("poll_interval", poll_interval);
-        // Readback prüfen vor end() - end() schreibt automatisch in Flash
-        unsigned long rb = preferences.getULong("poll_interval", 0);
-        preferences.end(); // end() committet automatisch
-        Serial.println("DEBUG: poll_interval sofort in Flash geschrieben: " + String(poll_interval) + " ms (written=" + String(written) + " readback=" + String(rb) + ")");
-      } else {
-        Serial.println("DEBUG: poll_interval ungültig oder nicht gesetzt im JSON ('" + valueStr + "'), beibehalten: " + String(poll_interval) + " ms");
-      }
-    }
-    
-    idx = body.indexOf("\"gas_calorific\":");
-    if (idx >= 0) {
-      int start = idx + 16;
-      int end = body.indexOf(",", start);
-      if (end < 0) end = body.indexOf("}", start);
-      gas_calorific_value = body.substring(start, end).toFloat();
-      if (gas_calorific_value < 8.0 || gas_calorific_value > 13.0) {
-        gas_calorific_value = 10.0; // Fallback bei ungültigen Werten
-      }
-    }
-    
-    idx = body.indexOf("\"gas_correction\":");
-    if (idx >= 0) {
-      int start = idx + 17;
-      int end = body.indexOf(",", start);
-      if (end < 0) end = body.indexOf("}", start);
-      gas_correction_factor = body.substring(start, end).toFloat();
-      if (gas_correction_factor < 0.90 || gas_correction_factor > 1.10) {
-        gas_correction_factor = 1.0; // Fallback bei ungültigen Werten
-      }
-    }
-    
-    idx = body.indexOf("\"use_static_ip\":");
-    if (idx >= 0) {
-      use_static_ip = body.substring(idx + 15, idx + 19) == "true";
-    }
-    
-    idx = body.indexOf("\"static_ip\":\"");
-    if (idx >= 0) {
-      int start = idx + 13;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_ip, sizeof(static_ip));
-    }
-    
-    idx = body.indexOf("\"static_gateway\":\"");
-    if (idx >= 0) {
-      int start = idx + 18;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_gateway, sizeof(static_gateway));
-    }
-    
-    idx = body.indexOf("\"static_subnet\":\"");
-    if (idx >= 0) {
-      int start = idx + 17;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_subnet, sizeof(static_subnet));
-    }
-    
-    idx = body.indexOf("\"static_dns\":\"");
-    if (idx >= 0) {
-      int start = idx + 14;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_dns, sizeof(static_dns));
-    }
-    
-    saveConfig();
-    server.send(200, "application/json", "{\"status\":\"ok\"}");
-    
-    Serial.println("Konfiguration gespeichert.");
-    if (apMode) {
-      Serial.println("Wechsel zu Station-Modus in 3 Sekunden...");
-    } else {
-      Serial.println("Neustart in 3 Sekunden...");
-    }
-    delay(3000);
-    ESP.restart();
-  } else {
-    server.send(400, "application/json", "{\"error\":\"invalid request\"}");
+  if (!server.hasArg("plain")) {
+    server.send(400, "application/json", "{"error":"invalid request"}");
+    return;
   }
+
+  String body = server.arg("plain");
+  Serial.println("DEBUG: Body length = " + String(body.length()));
+  String tb = body;
+  if (tb.length() > 300) tb = tb.substring(0, 300) + "...";
+  Serial.println("DEBUG POST /api/config body: " + tb);
+
+  String strVal;
+  String numVal;
+  bool boolVal;
+
+  if (jsonExtractString(body, "ssid", strVal)) strVal.toCharArray(ssid, sizeof(ssid));
+  if (jsonExtractString(body, "password", strVal)) strVal.toCharArray(password, sizeof(password));
+  if (jsonExtractString(body, "hostname", strVal)) strVal.toCharArray(hostname, sizeof(hostname));
+  if (jsonExtractString(body, "mqtt_server", strVal)) strVal.toCharArray(mqtt_server, sizeof(mqtt_server));
+  if (jsonExtractString(body, "mqtt_user", strVal)) strVal.toCharArray(mqtt_user, sizeof(mqtt_user));
+  if (jsonExtractString(body, "mqtt_pass", strVal)) strVal.toCharArray(mqtt_pass, sizeof(mqtt_pass));
+  if (jsonExtractString(body, "mqtt_topic", strVal)) strVal.toCharArray(mqtt_topic, sizeof(mqtt_topic));
+  if (jsonExtractString(body, "static_ip", strVal)) strVal.toCharArray(static_ip, sizeof(static_ip));
+  if (jsonExtractString(body, "static_gateway", strVal)) strVal.toCharArray(static_gateway, sizeof(static_gateway));
+  if (jsonExtractString(body, "static_subnet", strVal)) strVal.toCharArray(static_subnet, sizeof(static_subnet));
+  if (jsonExtractString(body, "static_dns", strVal)) strVal.toCharArray(static_dns, sizeof(static_dns));
+
+  if (jsonExtractNumber(body, "mqtt_port", numVal)) {
+    int port = numVal.toInt();
+    if (port > 0 && port <= 65535) mqtt_port = port;
+  }
+
+  if (jsonExtractNumber(body, "poll_interval", numVal)) {
+    int seconds = numVal.toInt();
+    if (seconds >= 10 && seconds <= 300) {
+      poll_interval = (unsigned long)seconds * 1000UL;
+      if (poll_interval < 10000UL) poll_interval = 10000UL;
+      if (poll_interval > 300000UL) poll_interval = 300000UL;
+
+      preferences.begin("gas-config", false);
+      size_t written = preferences.putULong("poll_interval", poll_interval);
+      unsigned long rb = preferences.getULong("poll_interval", 0);
+      preferences.end();
+      Serial.println("DEBUG: poll_interval in Flash geschrieben: " + String(poll_interval) + " ms (written=" + String(written) + " readback=" + String(rb) + ")");
+    } else {
+      Serial.println("DEBUG: poll_interval ungültig ('" + numVal + "'), beibehalten: " + String(poll_interval) + " ms");
+    }
+  }
+
+  if (jsonExtractNumber(body, "gas_calorific", numVal)) {
+    float v = numVal.toFloat();
+    gas_calorific_value = (v >= 8.0 && v <= 13.0) ? v : 10.0;
+  }
+
+  if (jsonExtractNumber(body, "gas_correction", numVal)) {
+    float v = numVal.toFloat();
+    gas_correction_factor = (v >= 0.90 && v <= 1.10) ? v : 1.0;
+  }
+
+  if (jsonExtractBool(body, "use_static_ip", boolVal)) {
+    use_static_ip = boolVal;
+  }
+
+  saveConfig();
+  server.send(200, "application/json", "{"status":"ok"}");
+
+  Serial.println("Konfiguration gespeichert.");
+  if (apMode) {
+    Serial.println("Wechsel zu Station-Modus in 3 Sekunden...");
+  } else {
+    Serial.println("Neustart in 3 Sekunden...");
+  }
+  delay(3000);
+  ESP.restart();
 }
 
 void setupWebServer() {

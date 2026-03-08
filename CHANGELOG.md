@@ -7,6 +7,19 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+## [2.0.5] - 2026-03-08
+
+### Geändert
+- WebUI Dark/Light Toggle stabilisiert (fehlendes Theme-Element ergänzt, robustere JS-Checks).
+- Defekten Chart-JavaScript-Block entfernt, der zu Runtime-Fehlern führen konnte.
+- `GET /api/config` liefert jetzt auch Static-IP Felder (`use_static_ip`, `static_ip`, `static_gateway`, `static_subnet`, `static_dns`).
+- Konfigurations-Parsing in `POST /api/config` auf wiederverwendbare Helper umgestellt (robuster bei Zahlen/Bool/String).
+- AP-Fallback standardmäßig mit Passwort (`12345678`) statt offenem AP.
+
+### Behoben
+- Inkonsistente Versionsanzeige in der WebUI-Update-Seite (nun dynamisch über `%VERSION%`).
+- README-Platzhalter (`YOUR-USERNAME`) auf `fgrfn` korrigiert.
+
 ### Hinzugefügt
 - Automatisierte GitHub Actions Workflows für Build und Release
 - Semantische Versionierung (v1.0.0 Format)
