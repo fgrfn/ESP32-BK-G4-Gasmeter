@@ -2668,18 +2668,18 @@ void handleErrorReset() {
 
 
 static bool jsonExtractString(const String& body, const char* key, String& out) {
-  String pattern = String(""") + key + "":"";
+  String pattern = String("\"") + key + "\":\"";
   int idx = body.indexOf(pattern);
   if (idx < 0) return false;
   int start = idx + pattern.length();
-  int end = body.indexOf(""", start);
+  int end = body.indexOf("\"", start);
   if (end < 0) return false;
   out = body.substring(start, end);
   return true;
 }
 
 static bool jsonExtractNumber(const String& body, const char* key, String& out) {
-  String pattern = String(""") + key + "":";
+  String pattern = String("\"") + key + "\":";
   int idx = body.indexOf(pattern);
   if (idx < 0) return false;
   int start = idx + pattern.length();
@@ -2697,7 +2697,7 @@ static bool jsonExtractNumber(const String& body, const char* key, String& out) 
 }
 
 static bool jsonExtractBool(const String& body, const char* key, bool& out) {
-  String pattern = String(""") + key + "":";
+  String pattern = String("\"") + key + "\":";
   int idx = body.indexOf(pattern);
   if (idx < 0) return false;
   int start = idx + pattern.length();
@@ -2713,7 +2713,7 @@ void handleConfigPost() {
   Serial.println("DEBUG: args() = " + String(server.args()));
 
   if (!server.hasArg("plain")) {
-    server.send(400, "application/json", "{"error":"invalid request"}");
+    server.send(400, "application/json", "{\"error\":\"invalid request\"}");
     return;
   }
 
@@ -2776,7 +2776,7 @@ void handleConfigPost() {
   }
 
   saveConfig();
-  server.send(200, "application/json", "{"status":"ok"}");
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
 
   Serial.println("Konfiguration gespeichert.");
   if (apMode) {
