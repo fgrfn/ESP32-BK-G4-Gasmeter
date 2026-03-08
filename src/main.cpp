@@ -1166,7 +1166,7 @@ const char* htmlPage = R"rawliteral(
     <div class="header">
       <button class="theme-toggle" id="themeToggle" onclick="toggleDarkMode()" title="Dark/Light Mode">🌙</button>
       <h1>⚡ Gaszähler Monitor</h1>
-      <p>ESP32 M-Bus Gateway v%VERSION%</p>
+      <p>ESP32 M-Bus Gateway v2.0.5</p>
       <div id="apModeWarning" style="display: none; background: #ff9800; color: white; padding: 10px; border-radius: 8px; margin-top: 10px;">
         ⚠️ <strong>Access Point Modus aktiv!</strong><br>
         Bitte konfigurieren Sie WLAN unter "Konfiguration" und speichern Sie die Einstellungen.
@@ -1536,7 +1536,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%); border: 1px solid #818cf8; border-radius: 12px; padding: 20px; margin-top: 20px;">
           <div style="color: var(--text-primary); margin-bottom: 12px;"><strong style="color: #818cf8; font-size: 1.1em;">&#128218; Aktuell:</strong></div>
           <div style="color: var(--text-primary); line-height: 1.8;">
-            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">%VERSION%</code></div>
+            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">2.0.5</code></div>
             <div style="margin-bottom: 8px;">IP-Adresse: <code id="currentIP3" style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 4px 10px; border-radius: 6px; font-weight: bold;">Lädt...</code></div>
             <div>Hostname: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">esp32-gas.local</code></div>
           </div>
@@ -2466,9 +2466,8 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
 )rawliteral";
 
 void handleRoot() {
-  String html = String(htmlPage);
-  html.replace("%VERSION%", FIRMWARE_VERSION);
-  server.send(200, "text/html", html);
+  // Direkte Auslieferung ohne große String-Kopie (stabiler auf ESP32)
+  server.send(200, "text/html", htmlPage);
 }
 
 void handleAPI() {
