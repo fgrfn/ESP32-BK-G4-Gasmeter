@@ -5,7 +5,7 @@
 
 Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **Honeywell BK-G4AT Gaszählers** mit vollständiger MQTT Integration und moderner Web-Oberfläche.
 
-[![Version](https://img.shields.io/badge/Version-2.0.0-brightgreen.svg)](https://github.com/YOUR-USERNAME/BK-G4AT2MQTT/releases)
+[![Version](https://img.shields.io/badge/Version-2.0.5-brightgreen.svg)](https://github.com/fgrfn/BK-G4AT2MQTT/releases)
 [![Platform](https://img.shields.io/badge/ESP32-DevKit%20V1-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Framework](https://img.shields.io/badge/Arduino-Framework-teal.svg)](https://www.arduino.cc/)
 [![MQTT](https://img.shields.io/badge/MQTT-3.1.1-orange.svg)](https://mqtt.org/)
@@ -82,9 +82,10 @@ Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **
 ### 🏠 Home Assistant Integration
 
 - **MQTT Auto-Discovery** - Automatische Erkennung ohne YAML
-- **5 Sensoren** werden automatisch angelegt:
+- **6 Sensoren** werden automatisch angelegt:
   - `sensor.esp32_gaszaehler_zaehlerstand` - Gasverbrauch (m³)
   - `sensor.esp32_gaszaehler_gasverbrauch` - Energie (kWh) für Energy Dashboard
+  - `sensor.esp32_gaszaehler_flow` - Gasdurchfluss (m³/h)
   - `sensor.esp32_gaszaehler_wifi` - WiFi Signal (dBm)
   - `sensor.esp32_gaszaehler_mbus` - M-Bus Erfolgsrate (%)
   - `binary_sensor.esp32_gaszaehler_online` - Verfügbarkeitsstatus
@@ -98,7 +99,7 @@ Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **
 - **Brennwert-Umrechnung** (m³ → kWh)
 - **Z-Zahl Korrekturfaktor** für präzise Messungen
 - **Konfigurierbar** über WebUI (Standard: 10.0 kWh/m³)
-- **Separate MQTT Topics** für Volumen und Energie
+- **Separate MQTT Topics** für Volumen, Energie und Gasdurchfluss
 - **Persistente Speicherung** von bis zu 50 Messungen
 
 ## 🔌 Hardware Setup
@@ -130,7 +131,7 @@ Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **
 
 ```bash
 # Repository klonen
-git clone https://github.com/YOUR-USERNAME/BK-G4AT2MQTT.git
+git clone https://github.com/fgrfn/BK-G4AT2MQTT.git
 cd BK-G4AT2MQTT
 
 # Dependencies werden automatisch installiert
@@ -226,6 +227,7 @@ Nach dem ersten Flash:
 |-------|--------------|------|---------|
 | `gaszaehler/verbrauch` | Gasvolumen | `1234.56` | m³ |
 | `gaszaehler/verbrauch_energy` | Energie | `12345.6` | kWh |
+| `gaszaehler/verbrauch_flow` | Gasdurchfluss | `0.0123` | m³/h |
 | `gaszaehler/verbrauch_wifi` | WiFi Signal | `-45` | dBm |
 | `gaszaehler/verbrauch_mbus_rate` | M-Bus Rate | `98.5` | % |
 | `gaszaehler/availability` | Status | `online`/`offline` | - |
@@ -363,8 +365,8 @@ Siehe [LICENSE](LICENSE) Datei für Details.
 
 ## 📞 Support
 
-**Issues:** [GitHub Issues](https://github.com/YOUR-USERNAME/BK-G4AT2MQTT/issues)  
-**Diskussionen:** [GitHub Discussions](https://github.com/YOUR-USERNAME/BK-G4AT2MQTT/discussions)
+**Issues:** [GitHub Issues](https://github.com/fgrfn/BK-G4AT2MQTT/issues)  
+**Diskussionen:** [GitHub Discussions](https://github.com/fgrfn/BK-G4AT2MQTT/discussions)
 
 ---
 

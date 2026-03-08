@@ -11,7 +11,7 @@
 #include <vector>
 
 // ---- Firmware Version ----
-const char* FIRMWARE_VERSION = "2.0.4";
+const char* FIRMWARE_VERSION = "2.0.5";
 
 // ---- ANSI Farb-Codes für Serial Monitor (deaktiviert für reine Text-Ausgabe) ----
 #define ANSI_RESET   ""
@@ -57,7 +57,7 @@ bool haDiscoverySent = false;
 // ---- WiFi AP Mode ----
 bool apMode = false;
 const char* ap_ssid = "ESP32-GasZaehler";
-const char* ap_password = ""; // Mindestens 8 Zeichen
+const char* ap_password = "12345678"; // Mindestens 8 Zeichen (bei Bedarf in Config ändern)
 const unsigned long AP_MODE_TIMEOUT = 300000; // 5 Minuten im AP-Modus
 
 // ---- Status LED ----
@@ -185,6 +185,8 @@ struct MeasurementData {
 std::vector<MeasurementData> measurements;
 const size_t MAX_MEASUREMENTS = 50;
 float lastVolume = -1;
+float lastFlowM3h = 0.0;
+unsigned long lastVolumeTimestamp = 0;
 unsigned long lastMemoryCheck = 0;
 const unsigned long MEMORY_CHECK_INTERVAL = 60000; // Jede Minute
 
@@ -265,6 +267,10 @@ void loadConfig() {
     }
     
     Serial.println("Erfolgreich " + String(measurements.size()) + " Messwerte geladen");
+    if (!measurements.empty()) {
+      lastVolume = measurements.back().volume;
+      lastVolumeTimestamp = measurements.back().timestamp;
+    }
   }
   historyPrefs.end();
   
@@ -506,8 +512,7 @@ void startAPMode() {
   Serial.println("========================================");
   Serial.print("SSID: ");
   Serial.println(ap_ssid);
-  Serial.print("Passwort: ");
-  Serial.println(ap_password);
+  Serial.println("Passwort: [gesetzt]");
   Serial.print("IP-Adresse: ");
   Serial.println(IP);
   Serial.println("\nVerbinden Sie sich mit dem Access Point");
@@ -600,15 +605,21 @@ void sendHomeAssistantDiscovery() {
   client.publish("homeassistant/sensor/esp32_gaszaehler_mbus/config", p4.c_str(), true);
   delay(100);
   
-  // 5. Online
-  String p5 = "{\"name\":\"Online\",\"stat_t\":\"" + String(mqtt_availability_topic) + "\",\"pl_on\":\"online\",\"pl_off\":\"offline\",\"dev_cla\":\"connectivity\",\"uniq_id\":\"esp32_gaszaehler_online\",\"dev\":" + dev + "}";
-  client.publish("homeassistant/binary_sensor/esp32_gaszaehler_online/config", p5.c_str(), true);
+  // 5. Gasdurchfluss (m³/h)
+  String p5 = "{\"name\":\"Gasdurchfluss\",\"stat_t\":\"" + String(mqtt_topic) + "_flow\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"m³/h\",\"dev_cla\":\"volume_flow_rate\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_flow\",\"dev\":" + dev + "}";
+  client.publish("homeassistant/sensor/esp32_gaszaehler_flow/config", p5.c_str(), true);
+  delay(100);
+
+  // 6. Online
+  String p6 = "{\"name\":\"Online\",\"stat_t\":\"" + String(mqtt_availability_topic) + "\",\"pl_on\":\"online\",\"pl_off\":\"offline\",\"dev_cla\":\"connectivity\",\"uniq_id\":\"esp32_gaszaehler_online\",\"dev\":" + dev + "}";
+  client.publish("homeassistant/binary_sensor/esp32_gaszaehler_online/config", p6.c_str(), true);
   
-  Serial.println("HA Discovery gesendet (5 Entities)");
+  Serial.println("HA Discovery gesendet (6 Entities)");
   Serial.println("Sensoren werden nach der ersten M-Bus Messung sichtbar!");
   Serial.println("Topics:");
   Serial.println("  - Volume: " + String(mqtt_topic));
   Serial.println("  - Energy: " + String(mqtt_topic) + "_energy");
+  Serial.println("  - Flow: " + String(mqtt_topic) + "_flow");
   Serial.println("  - WiFi: " + String(mqtt_topic) + "_wifi");
   Serial.println("  - M-Bus Rate: " + String(mqtt_topic) + "_mbus_rate");
   Serial.println("  - Availability: " + String(mqtt_availability_topic));
@@ -1153,8 +1164,9 @@ const char* htmlPage = R"rawliteral(
 <body>
   <div class="container">
     <div class="header">
+      <button class="theme-toggle" id="themeToggle" onclick="toggleDarkMode()" title="Dark/Light Mode">🌙</button>
       <h1>⚡ Gaszähler Monitor</h1>
-      <p>ESP32 M-Bus Gateway v%VERSION%</p>
+      <p>ESP32 M-Bus Gateway v2.0.5</p>
       <div id="apModeWarning" style="display: none; background: #ff9800; color: white; padding: 10px; border-radius: 8px; margin-top: 10px;">
         ⚠️ <strong>Access Point Modus aktiv!</strong><br>
         Bitte konfigurieren Sie WLAN unter "Konfiguration" und speichern Sie die Einstellungen.
@@ -1524,7 +1536,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(168, 85, 247, 0.15) 100%); border: 1px solid #818cf8; border-radius: 12px; padding: 20px; margin-top: 20px;">
           <div style="color: var(--text-primary); margin-bottom: 12px;"><strong style="color: #818cf8; font-size: 1.1em;">&#128218; Aktuell:</strong></div>
           <div style="color: var(--text-primary); line-height: 1.8;">
-            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">2.0.1</code></div>
+            <div style="margin-bottom: 8px;">Version: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">2.0.5</code></div>
             <div style="margin-bottom: 8px;">IP-Adresse: <code id="currentIP3" style="background: rgba(16, 185, 129, 0.2); color: #10b981; padding: 4px 10px; border-radius: 6px; font-weight: bold;">Lädt...</code></div>
             <div>Hostname: <code style="background: rgba(99, 102, 241, 0.2); color: #818cf8; padding: 4px 10px; border-radius: 6px; font-weight: bold;">esp32-gas.local</code></div>
           </div>
@@ -1541,21 +1553,23 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     // Dark Mode initialisieren
     function initDarkMode() {
       const darkMode = localStorage.getItem('darkMode') !== 'false'; // Default: true
+      const themeBtn = document.getElementById('themeToggle');
       if (darkMode) {
         document.body.classList.add('dark-mode');
-        document.getElementById('themeToggle').textContent = '';
+        if (themeBtn) themeBtn.textContent = '🌙';
         localStorage.setItem('darkMode', 'true');
       } else {
-        document.getElementById('themeToggle').textContent = '';
+        if (themeBtn) themeBtn.textContent = '☀️';
       }
     }
 
     function toggleDarkMode() {
       const isDark = document.body.classList.toggle('dark-mode');
-      localStorage.setItem('darkMode', isDark);
-      document.getElementById('themeToggle').textContent = isDark ? '' : '';
+      localStorage.setItem('darkMode', isDark ? 'true' : 'false');
+      const themeBtn = document.getElementById('themeToggle');
+      if (themeBtn) themeBtn.textContent = isDark ? '🌙' : '☀️';
       
-      // Chart neu zeichnen fr Theme-Anpassung
+      // Chart neu zeichnen für Theme-Anpassung
       if (currentPage === 'dashboard' && fullHistoryData.length > 0) {
         drawChart(fullHistoryData);
       }
@@ -2280,11 +2294,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     }
     
     // Chart.js kümmert sich um Tooltips
-    document.addEventListener('DOMContentLoaded', function() {
-        chartZoom *= delta;
-        chartZoom = Math.max(0.5, Math.min(3, chartZoom));
-        drawChart(filterHistoryByTimeRange(fullHistoryData));
-    });
 
     // Diagnose-Funktionen
     function testMQTT() {
@@ -2457,14 +2466,14 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
 )rawliteral";
 
 void handleRoot() {
-  String html = String(htmlPage);
-  html.replace("%VERSION%", FIRMWARE_VERSION);
-  server.send(200, "text/html", html);
+  // Direkte Auslieferung ohne große String-Kopie (stabiler auf ESP32)
+  server.send(200, "text/html", htmlPage);
 }
 
 void handleAPI() {
   String json = "{";
   json += "\"volume\":" + String(lastVolume, 2) + ",";
+  json += "\"flow_m3h\":" + String(lastFlowM3h, 4) + ",";
   json += "\"wifiConnected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
   json += "\"wifiRSSI\":" + String(WiFi.RSSI()) + ",";
   json += "\"mqttConnected\":" + String(client.connected() ? "true" : "false") + ",";
@@ -2519,7 +2528,12 @@ void handleConfigGet() {
   json += "\"mqtt_topic\":\"" + String(mqtt_topic) + "\",";
   json += "\"poll_interval\":" + String(poll_interval / 1000) + ",";
   json += "\"gas_calorific\":" + String(gas_calorific_value, 6) + ",";
-  json += "\"gas_correction\":" + String(gas_correction_factor, 6);
+  json += "\"gas_correction\":" + String(gas_correction_factor, 6) + ",";
+  json += "\"use_static_ip\":" + String(use_static_ip ? "true" : "false") + ",";
+  json += "\"static_ip\":\"" + String(static_ip) + "\",";
+  json += "\"static_gateway\":\"" + String(static_gateway) + "\",";
+  json += "\"static_subnet\":\"" + String(static_subnet) + "\",";
+  json += "\"static_dns\":\"" + String(static_dns) + "\"";
   json += "}";
   server.send(200, "application/json", json);
 }
@@ -2651,197 +2665,126 @@ void handleErrorReset() {
   server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Fehlerstatistik zurückgesetzt\"}");
 }
 
+
+static bool jsonExtractString(const String& body, const char* key, String& out) {
+  String pattern = String("\"") + key + "\":\"";
+  int idx = body.indexOf(pattern);
+  if (idx < 0) return false;
+  int start = idx + pattern.length();
+  int end = body.indexOf("\"", start);
+  if (end < 0) return false;
+  out = body.substring(start, end);
+  return true;
+}
+
+static bool jsonExtractNumber(const String& body, const char* key, String& out) {
+  String pattern = String("\"") + key + "\":";
+  int idx = body.indexOf(pattern);
+  if (idx < 0) return false;
+  int start = idx + pattern.length();
+  while (start < body.length() && (body.charAt(start) == ' ')) start++;
+  int end = start;
+  while (end < body.length()) {
+    char c = body.charAt(end);
+    if ((c >= '0' && c <= '9') || c == '.' || c == '-') end++;
+    else break;
+  }
+  if (end <= start) return false;
+  out = body.substring(start, end);
+  out.trim();
+  return out.length() > 0;
+}
+
+static bool jsonExtractBool(const String& body, const char* key, bool& out) {
+  String pattern = String("\"") + key + "\":";
+  int idx = body.indexOf(pattern);
+  if (idx < 0) return false;
+  int start = idx + pattern.length();
+  while (start < body.length() && body.charAt(start) == ' ') start++;
+  if (body.startsWith("true", start)) { out = true; return true; }
+  if (body.startsWith("false", start)) { out = false; return true; }
+  return false;
+}
+
 void handleConfigPost() {
   Serial.println("DEBUG: handleConfigPost() aufgerufen");
   Serial.println("DEBUG: hasArg('plain') = " + String(server.hasArg("plain") ? "true" : "false"));
   Serial.println("DEBUG: args() = " + String(server.args()));
-  
-  if (server.hasArg("plain")) {
-    String body = server.arg("plain");
-    Serial.println("DEBUG: Body length = " + String(body.length()));
-    // Debug: show incoming POST body (truncated) to help diagnose client-side issues
-    String tb = body;
-    if (tb.length() > 300) tb = tb.substring(0, 300) + "...";
-    Serial.println("DEBUG POST /api/config body: " + tb);
-    
-    // Einfaches JSON Parsing (fr kleine Daten ausreichend)
-    int idx;
-    
-    idx = body.indexOf("\"ssid\":\"");
-    if (idx >= 0) {
-      int start = idx + 8;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(ssid, sizeof(ssid));
-    }
-    
-    idx = body.indexOf("\"password\":\"");
-    if (idx >= 0) {
-      int start = idx + 12;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(password, sizeof(password));
-    }
-    
-    idx = body.indexOf("\"hostname\":\"");
-    if (idx >= 0) {
-      int start = idx + 12;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(hostname, sizeof(hostname));
-    }
-    
-    idx = body.indexOf("\"mqtt_server\":\"");
-    if (idx >= 0) {
-      int start = idx + 15;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_server, sizeof(mqtt_server));
-    }
-    
-    idx = body.indexOf("\"mqtt_port\":");
-    if (idx >= 0) {
-      int start = idx + 12;
-      int end = body.indexOf(",", start);
-      if (end < 0) end = body.indexOf("}", start);
-      mqtt_port = body.substring(start, end).toInt();
-    }
-    
-    idx = body.indexOf("\"mqtt_user\":\"");
-    if (idx >= 0) {
-      int start = idx + 13;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_user, sizeof(mqtt_user));
-    }
-    
-    idx = body.indexOf("\"mqtt_pass\":\"");
-    if (idx >= 0) {
-      int start = idx + 13;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_pass, sizeof(mqtt_pass));
-    }
-    
-    idx = body.indexOf("\"mqtt_topic\":\"");
-    if (idx >= 0) {
-      int start = idx + 14;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(mqtt_topic, sizeof(mqtt_topic));
-    }
-    
-    idx = body.indexOf("\"poll_interval\":");
-    if (idx >= 0) {
-      int start = idx + 16; // Nach "poll_interval":
-      // Überspringe Leerzeichen und Doppelpunkt
-      while (start < body.length() && (body.charAt(start) == ':' || body.charAt(start) == ' ')) start++;
-      
-      int end = start;
-      // Finde das Ende der Zahl (Komma, Leerzeichen oder schließende Klammer)
-      while (end < body.length() && body.charAt(end) >= '0' && body.charAt(end) <= '9') end++;
-      
-      String valueStr = body.substring(start, end);
-      valueStr.trim();
-      int seconds = valueStr.toInt();
-      
-      Serial.println("DEBUG: Parsing poll_interval: start=" + String(start) + " end=" + String(end) + " valueStr='" + valueStr + "' seconds=" + String(seconds));
-      
-      // Akzeptiere nur gültige Bereiche (10s .. 300s). Bei ungültigen/fehlenden Werten
-      // wird der bisherige poll_interval nicht überschrieben.
-      if (seconds >= 10 && seconds <= 300) {
-        Serial.println("DEBUG: poll_interval aus JSON: " + valueStr + " -> " + String(seconds) + " Sekunden");
-        poll_interval = (unsigned long)seconds * 1000UL; // Sekunden -> ms
-        if (poll_interval < 10000UL) poll_interval = 10000UL; // Minimum 10s (safety)
-        if (poll_interval > 300000UL) poll_interval = 300000UL; // Maximum 5min
-        Serial.println("DEBUG: poll_interval nach Validierung: " + String(poll_interval) + " ms");
 
-        // Persistiere sofort, um sicherzustellen dass der Wert vor dem Neustart
-        // in den Preferences steht (reduziert Race-Condition vor saveConfig()).
-        preferences.begin("gas-config", false);
-        size_t written = preferences.putULong("poll_interval", poll_interval);
-        // Readback prüfen vor end() - end() schreibt automatisch in Flash
-        unsigned long rb = preferences.getULong("poll_interval", 0);
-        preferences.end(); // end() committet automatisch
-        Serial.println("DEBUG: poll_interval sofort in Flash geschrieben: " + String(poll_interval) + " ms (written=" + String(written) + " readback=" + String(rb) + ")");
-      } else {
-        Serial.println("DEBUG: poll_interval ungültig oder nicht gesetzt im JSON ('" + valueStr + "'), beibehalten: " + String(poll_interval) + " ms");
-      }
-    }
-    
-    idx = body.indexOf("\"gas_calorific\":");
-    if (idx >= 0) {
-      int start = idx + 16;
-      int end = body.indexOf(",", start);
-      if (end < 0) end = body.indexOf("}", start);
-      gas_calorific_value = body.substring(start, end).toFloat();
-      if (gas_calorific_value < 8.0 || gas_calorific_value > 13.0) {
-        gas_calorific_value = 10.0; // Fallback bei ungültigen Werten
-      }
-    }
-    
-    idx = body.indexOf("\"gas_correction\":");
-    if (idx >= 0) {
-      int start = idx + 17;
-      int end = body.indexOf(",", start);
-      if (end < 0) end = body.indexOf("}", start);
-      gas_correction_factor = body.substring(start, end).toFloat();
-      if (gas_correction_factor < 0.90 || gas_correction_factor > 1.10) {
-        gas_correction_factor = 1.0; // Fallback bei ungültigen Werten
-      }
-    }
-    
-    idx = body.indexOf("\"use_static_ip\":");
-    if (idx >= 0) {
-      use_static_ip = body.substring(idx + 15, idx + 19) == "true";
-    }
-    
-    idx = body.indexOf("\"static_ip\":\"");
-    if (idx >= 0) {
-      int start = idx + 13;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_ip, sizeof(static_ip));
-    }
-    
-    idx = body.indexOf("\"static_gateway\":\"");
-    if (idx >= 0) {
-      int start = idx + 18;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_gateway, sizeof(static_gateway));
-    }
-    
-    idx = body.indexOf("\"static_subnet\":\"");
-    if (idx >= 0) {
-      int start = idx + 17;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_subnet, sizeof(static_subnet));
-    }
-    
-    idx = body.indexOf("\"static_dns\":\"");
-    if (idx >= 0) {
-      int start = idx + 14;
-      int end = body.indexOf("\"", start);
-      String val = body.substring(start, end);
-      val.toCharArray(static_dns, sizeof(static_dns));
-    }
-    
-    saveConfig();
-    server.send(200, "application/json", "{\"status\":\"ok\"}");
-    
-    Serial.println("Konfiguration gespeichert.");
-    if (apMode) {
-      Serial.println("Wechsel zu Station-Modus in 3 Sekunden...");
-    } else {
-      Serial.println("Neustart in 3 Sekunden...");
-    }
-    delay(3000);
-    ESP.restart();
-  } else {
+  if (!server.hasArg("plain")) {
     server.send(400, "application/json", "{\"error\":\"invalid request\"}");
+    return;
   }
+
+  String body = server.arg("plain");
+  Serial.println("DEBUG: Body length = " + String(body.length()));
+  String tb = body;
+  if (tb.length() > 300) tb = tb.substring(0, 300) + "...";
+  Serial.println("DEBUG POST /api/config body: " + tb);
+
+  String strVal;
+  String numVal;
+  bool boolVal;
+
+  if (jsonExtractString(body, "ssid", strVal)) strVal.toCharArray(ssid, sizeof(ssid));
+  if (jsonExtractString(body, "password", strVal)) strVal.toCharArray(password, sizeof(password));
+  if (jsonExtractString(body, "hostname", strVal)) strVal.toCharArray(hostname, sizeof(hostname));
+  if (jsonExtractString(body, "mqtt_server", strVal)) strVal.toCharArray(mqtt_server, sizeof(mqtt_server));
+  if (jsonExtractString(body, "mqtt_user", strVal)) strVal.toCharArray(mqtt_user, sizeof(mqtt_user));
+  if (jsonExtractString(body, "mqtt_pass", strVal)) strVal.toCharArray(mqtt_pass, sizeof(mqtt_pass));
+  if (jsonExtractString(body, "mqtt_topic", strVal)) strVal.toCharArray(mqtt_topic, sizeof(mqtt_topic));
+  if (jsonExtractString(body, "static_ip", strVal)) strVal.toCharArray(static_ip, sizeof(static_ip));
+  if (jsonExtractString(body, "static_gateway", strVal)) strVal.toCharArray(static_gateway, sizeof(static_gateway));
+  if (jsonExtractString(body, "static_subnet", strVal)) strVal.toCharArray(static_subnet, sizeof(static_subnet));
+  if (jsonExtractString(body, "static_dns", strVal)) strVal.toCharArray(static_dns, sizeof(static_dns));
+
+  if (jsonExtractNumber(body, "mqtt_port", numVal)) {
+    int port = numVal.toInt();
+    if (port > 0 && port <= 65535) mqtt_port = port;
+  }
+
+  if (jsonExtractNumber(body, "poll_interval", numVal)) {
+    int seconds = numVal.toInt();
+    if (seconds >= 10 && seconds <= 300) {
+      poll_interval = (unsigned long)seconds * 1000UL;
+      if (poll_interval < 10000UL) poll_interval = 10000UL;
+      if (poll_interval > 300000UL) poll_interval = 300000UL;
+
+      preferences.begin("gas-config", false);
+      size_t written = preferences.putULong("poll_interval", poll_interval);
+      unsigned long rb = preferences.getULong("poll_interval", 0);
+      preferences.end();
+      Serial.println("DEBUG: poll_interval in Flash geschrieben: " + String(poll_interval) + " ms (written=" + String(written) + " readback=" + String(rb) + ")");
+    } else {
+      Serial.println("DEBUG: poll_interval ungültig ('" + numVal + "'), beibehalten: " + String(poll_interval) + " ms");
+    }
+  }
+
+  if (jsonExtractNumber(body, "gas_calorific", numVal)) {
+    float v = numVal.toFloat();
+    gas_calorific_value = (v >= 8.0 && v <= 13.0) ? v : 10.0;
+  }
+
+  if (jsonExtractNumber(body, "gas_correction", numVal)) {
+    float v = numVal.toFloat();
+    gas_correction_factor = (v >= 0.90 && v <= 1.10) ? v : 1.0;
+  }
+
+  if (jsonExtractBool(body, "use_static_ip", boolVal)) {
+    use_static_ip = boolVal;
+  }
+
+  saveConfig();
+  server.send(200, "application/json", "{\"status\":\"ok\"}");
+
+  Serial.println("Konfiguration gespeichert.");
+  if (apMode) {
+    Serial.println("Wechsel zu Station-Modus in 3 Sekunden...");
+  } else {
+    Serial.println("Neustart in 3 Sekunden...");
+  }
+  delay(3000);
+  ESP.restart();
 }
 
 void setupWebServer() {
@@ -3091,7 +3034,28 @@ void loop() {
             
             char payload[16];
             dtostrf(volume, 0, 2, payload);
-            
+
+            // Zeitstempel einmal zentral bestimmen (für Verlauf + Durchflussberechnung)
+            unsigned long timestamp;
+            if (timeInitialized) {
+              timestamp = time(nullptr);
+            } else {
+              // Fallback: Unix-Timestamp schätzen basierend auf millis()
+              // Verwende einen Basis-Timestamp (01.01.2024) + millis/1000
+              timestamp = 1704067200 + (millis() / 1000);
+            }
+
+            // Gasdurchfluss berechnen (m³/h) aus Delta Volumen / Delta Zeit
+            float flow_m3h = 0.0;
+            if (lastVolume >= 0 && lastVolumeTimestamp > 0 && timestamp > lastVolumeTimestamp) {
+              float deltaVolume = volume - lastVolume;
+              unsigned long deltaSeconds = timestamp - lastVolumeTimestamp;
+              if (deltaVolume >= 0 && deltaSeconds > 0) {
+                flow_m3h = (deltaVolume * 3600.0f) / deltaSeconds;
+              }
+            }
+            lastFlowM3h = flow_m3h;
+
             // Volumen publishen (retained so Home Assistant always has latest state)
             if (client.publish(mqtt_topic, payload, true)) {
               Serial.print("Verbrauch gesendet: ");
@@ -3108,8 +3072,13 @@ void loop() {
               Serial.print(energy_payload);
               Serial.println(" kWh");
               addLog("MQTT: Energie - " + String(energy_payload) + " kWh (Zählerstand: " + String(payload) + " m³, Brennwert: " + String(gas_calorific_value, 6) + ", Z-Zahl: " + String(gas_correction_factor, 6) + ")");
+
+              // Gasdurchfluss publishen (m³/h)
+              String flowTopic = String(mqtt_topic) + "_flow";
+              client.publish(flowTopic.c_str(), String(lastFlowM3h, 4).c_str(), true); // retained!
+              addLog("MQTT: Durchfluss - " + String(lastFlowM3h, 4) + " m³/h");
               
-              // Additional HA sensors (nach Energy-Publish)
+              // Additional HA sensors (nach Energy/Flow-Publish)
               String wifiTopic = String(mqtt_topic) + "_wifi";
               client.publish(wifiTopic.c_str(), String(WiFi.RSSI()).c_str(), true); // retained!
               
@@ -3122,16 +3091,9 @@ void loop() {
               addLog("MQTT: Publish Fehler");
             }
             
-            // Verlauf speichern mit echter Zeit wenn verfgbar
+            // Verlauf speichern mit echter Zeit wenn verfügbar
             lastVolume = volume;
-            unsigned long timestamp;
-            if (timeInitialized) {
-              timestamp = time(nullptr);
-            } else {
-              // Fallback: Unix-Timestamp schätzen basierend auf millis()
-              // Verwende einen Basis-Timestamp (01.01.2024) + millis/1000
-              timestamp = 1704067200 + (millis() / 1000);
-            }
+            lastVolumeTimestamp = timestamp;
             measurements.push_back({timestamp, volume});
             if (measurements.size() > MAX_MEASUREMENTS) {
               measurements.erase(measurements.begin());
