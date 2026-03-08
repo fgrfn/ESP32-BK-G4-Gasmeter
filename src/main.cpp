@@ -1476,7 +1476,7 @@ const char htmlPage[] PROGMEM = R"rawliteral(
         <div class="status-grid">
           <div class="status-item">
             <div class="label">Erfolgsquote</div>
-            <div class="value" id="mbusSuccessRate">--</div>
+            <div class="value" id="mbusSuccessRateDiag">--</div>
           </div>
           <div class="status-item">
             <div class="label"> Antwortzeit</div>
@@ -1549,6 +1549,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     let currentPage = 'dashboard';
     let updateInterval = null;
     let fullHistoryData = [];
+    let lastHistoryKey = '';
 
     // Dark Mode initialisieren
     function initDarkMode() {
@@ -1819,7 +1820,14 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
             }
             fullHistoryData = hist;
             updateConsumptionStats(hist, data.calorific, data.correction);
-            drawChart(hist);
+
+            // Chart nur neu rendern, wenn sich die Historie wirklich geändert hat
+            const lastPoint = hist[hist.length - 1];
+            const historyKey = `${hist.length}:${lastPoint.timestamp}:${lastPoint.volume}`;
+            if (historyKey !== lastHistoryKey) {
+              drawChart(hist);
+              lastHistoryKey = historyKey;
+            }
           }
         })
         .catch(e => {
@@ -2387,7 +2395,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
                 const avgTime = stats.total > 0 ? (stats.total_time / stats.total).toFixed(0) : 0;
                 
                 const el = (id) => document.getElementById(id);
-                if (el('mbusSuccessRate')) el('mbusSuccessRate').textContent = rate + '%';
+                if (el('mbusSuccessRateDiag')) el('mbusSuccessRateDiag').textContent = rate + '%';
                 if (el('mbusAvgResponse')) el('mbusAvgResponse').textContent = avgTime + ' ms';
                 if (el('mbusLastResponse')) el('mbusLastResponse').textContent = stats.last_response + ' ms';
                 if (el('mbusTotalPolls')) el('mbusTotalPolls').textContent = stats.total;
