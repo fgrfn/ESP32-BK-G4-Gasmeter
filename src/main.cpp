@@ -2289,7 +2289,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
               }
             }
           }
-        });
+        }
       });
     }
     
