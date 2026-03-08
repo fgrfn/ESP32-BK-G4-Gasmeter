@@ -185,6 +185,8 @@ struct MeasurementData {
 std::vector<MeasurementData> measurements;
 const size_t MAX_MEASUREMENTS = 50;
 float lastVolume = -1;
+float lastFlowM3h = 0.0;
+unsigned long lastVolumeTimestamp = 0;
 unsigned long lastMemoryCheck = 0;
 const unsigned long MEMORY_CHECK_INTERVAL = 60000; // Jede Minute
 
@@ -265,6 +267,10 @@ void loadConfig() {
     }
     
     Serial.println("Erfolgreich " + String(measurements.size()) + " Messwerte geladen");
+    if (!measurements.empty()) {
+      lastVolume = measurements.back().volume;
+      lastVolumeTimestamp = measurements.back().timestamp;
+    }
   }
   historyPrefs.end();
   
@@ -599,15 +605,21 @@ void sendHomeAssistantDiscovery() {
   client.publish("homeassistant/sensor/esp32_gaszaehler_mbus/config", p4.c_str(), true);
   delay(100);
   
-  // 5. Online
-  String p5 = "{\"name\":\"Online\",\"stat_t\":\"" + String(mqtt_availability_topic) + "\",\"pl_on\":\"online\",\"pl_off\":\"offline\",\"dev_cla\":\"connectivity\",\"uniq_id\":\"esp32_gaszaehler_online\",\"dev\":" + dev + "}";
-  client.publish("homeassistant/binary_sensor/esp32_gaszaehler_online/config", p5.c_str(), true);
+  // 5. Gasdurchfluss (m³/h)
+  String p5 = "{\"name\":\"Gasdurchfluss\",\"stat_t\":\"" + String(mqtt_topic) + "_flow\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"m³/h\",\"dev_cla\":\"volume_flow_rate\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_flow\",\"dev\":" + dev + "}";
+  client.publish("homeassistant/sensor/esp32_gaszaehler_flow/config", p5.c_str(), true);
+  delay(100);
+
+  // 6. Online
+  String p6 = "{\"name\":\"Online\",\"stat_t\":\"" + String(mqtt_availability_topic) + "\",\"pl_on\":\"online\",\"pl_off\":\"offline\",\"dev_cla\":\"connectivity\",\"uniq_id\":\"esp32_gaszaehler_online\",\"dev\":" + dev + "}";
+  client.publish("homeassistant/binary_sensor/esp32_gaszaehler_online/config", p6.c_str(), true);
   
-  Serial.println("HA Discovery gesendet (5 Entities)");
+  Serial.println("HA Discovery gesendet (6 Entities)");
   Serial.println("Sensoren werden nach der ersten M-Bus Messung sichtbar!");
   Serial.println("Topics:");
   Serial.println("  - Volume: " + String(mqtt_topic));
   Serial.println("  - Energy: " + String(mqtt_topic) + "_energy");
+  Serial.println("  - Flow: " + String(mqtt_topic) + "_flow");
   Serial.println("  - WiFi: " + String(mqtt_topic) + "_wifi");
   Serial.println("  - M-Bus Rate: " + String(mqtt_topic) + "_mbus_rate");
   Serial.println("  - Availability: " + String(mqtt_availability_topic));
@@ -2462,6 +2474,7 @@ void handleRoot() {
 void handleAPI() {
   String json = "{";
   json += "\"volume\":" + String(lastVolume, 2) + ",";
+  json += "\"flow_m3h\":" + String(lastFlowM3h, 4) + ",";
   json += "\"wifiConnected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
   json += "\"wifiRSSI\":" + String(WiFi.RSSI()) + ",";
   json += "\"mqttConnected\":" + String(client.connected() ? "true" : "false") + ",";
@@ -3022,7 +3035,28 @@ void loop() {
             
             char payload[16];
             dtostrf(volume, 0, 2, payload);
-            
+
+            // Zeitstempel einmal zentral bestimmen (für Verlauf + Durchflussberechnung)
+            unsigned long timestamp;
+            if (timeInitialized) {
+              timestamp = time(nullptr);
+            } else {
+              // Fallback: Unix-Timestamp schätzen basierend auf millis()
+              // Verwende einen Basis-Timestamp (01.01.2024) + millis/1000
+              timestamp = 1704067200 + (millis() / 1000);
+            }
+
+            // Gasdurchfluss berechnen (m³/h) aus Delta Volumen / Delta Zeit
+            float flow_m3h = 0.0;
+            if (lastVolume >= 0 && lastVolumeTimestamp > 0 && timestamp > lastVolumeTimestamp) {
+              float deltaVolume = volume - lastVolume;
+              unsigned long deltaSeconds = timestamp - lastVolumeTimestamp;
+              if (deltaVolume >= 0 && deltaSeconds > 0) {
+                flow_m3h = (deltaVolume * 3600.0f) / deltaSeconds;
+              }
+            }
+            lastFlowM3h = flow_m3h;
+
             // Volumen publishen (retained so Home Assistant always has latest state)
             if (client.publish(mqtt_topic, payload, true)) {
               Serial.print("Verbrauch gesendet: ");
@@ -3039,8 +3073,13 @@ void loop() {
               Serial.print(energy_payload);
               Serial.println(" kWh");
               addLog("MQTT: Energie - " + String(energy_payload) + " kWh (Zählerstand: " + String(payload) + " m³, Brennwert: " + String(gas_calorific_value, 6) + ", Z-Zahl: " + String(gas_correction_factor, 6) + ")");
+
+              // Gasdurchfluss publishen (m³/h)
+              String flowTopic = String(mqtt_topic) + "_flow";
+              client.publish(flowTopic.c_str(), String(lastFlowM3h, 4).c_str(), true); // retained!
+              addLog("MQTT: Durchfluss - " + String(lastFlowM3h, 4) + " m³/h");
               
-              // Additional HA sensors (nach Energy-Publish)
+              // Additional HA sensors (nach Energy/Flow-Publish)
               String wifiTopic = String(mqtt_topic) + "_wifi";
               client.publish(wifiTopic.c_str(), String(WiFi.RSSI()).c_str(), true); // retained!
               
@@ -3053,16 +3092,9 @@ void loop() {
               addLog("MQTT: Publish Fehler");
             }
             
-            // Verlauf speichern mit echter Zeit wenn verfgbar
+            // Verlauf speichern mit echter Zeit wenn verfügbar
             lastVolume = volume;
-            unsigned long timestamp;
-            if (timeInitialized) {
-              timestamp = time(nullptr);
-            } else {
-              // Fallback: Unix-Timestamp schätzen basierend auf millis()
-              // Verwende einen Basis-Timestamp (01.01.2024) + millis/1000
-              timestamp = 1704067200 + (millis() / 1000);
-            }
+            lastVolumeTimestamp = timestamp;
             measurements.push_back({timestamp, volume});
             if (measurements.size() > MAX_MEASUREMENTS) {
               measurements.erase(measurements.begin());

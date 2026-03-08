@@ -7,6 +7,14 @@ und dieses Projekt folgt [Semantic Versioning](https://semver.org/lang/de/).
 
 ## [Unreleased]
 
+### Hinzugefügt
+- Home Assistant Gasdurchfluss-Sensor (`sensor.esp32_gaszaehler_flow`) via MQTT Discovery (`unit_of_meas: m³/h`, `device_class: volume_flow_rate`).
+- Neues MQTT Topic `<base_topic>_flow` mit berechnetem Gasdurchfluss in m³/h.
+
+### Geändert
+- Durchflussberechnung aus Delta Zählerstand / Delta Zeit zwischen zwei gültigen M-Bus Messungen.
+- API erweitert um `flow_m3h` im Endpoint `/api/data`.
+
 ## [2.0.5] - 2026-03-08
 
 ### Geändert
