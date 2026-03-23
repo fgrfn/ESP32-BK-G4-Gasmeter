@@ -82,10 +82,12 @@ Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **
 ### 🏠 Home Assistant Integration
 
 - **MQTT Auto-Discovery** - Automatische Erkennung ohne YAML
-- **6 Sensoren** werden automatisch angelegt:
+- **8 Sensoren** werden automatisch angelegt:
   - `sensor.esp32_gaszaehler_zaehlerstand` - Gasverbrauch (m³)
   - `sensor.esp32_gaszaehler_gasverbrauch` - Energie (kWh) für Energy Dashboard
   - `sensor.esp32_gaszaehler_flow` - Gasdurchfluss (m³/h)
+  - `sensor.esp32_gaszaehler_brennwert` - Brennwert (kWh/m³) via Topic `<mqtt_topic>_brennwert`
+  - `sensor.esp32_gaszaehler_z_zahl` - Z-Zahl Korrekturfaktor via Topic `<mqtt_topic>_z`
   - `sensor.esp32_gaszaehler_wifi` - WiFi Signal (dBm)
   - `sensor.esp32_gaszaehler_mbus` - M-Bus Erfolgsrate (%)
   - `binary_sensor.esp32_gaszaehler_online` - Verfügbarkeitsstatus
@@ -99,7 +101,7 @@ Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **
 - **Brennwert-Umrechnung** (m³ → kWh)
 - **Z-Zahl Korrekturfaktor** für präzise Messungen
 - **Konfigurierbar** über WebUI (Standard: 10.0 kWh/m³)
-- **Separate MQTT Topics** für Volumen, Energie und Gasdurchfluss
+- **Separate MQTT Topics** für Volumen, Energie, Gasdurchfluss, Brennwert (`_brennwert`) und Z-Zahl (`_z`)
 - **Persistente Speicherung** von bis zu 50 Messungen
 
 ## 🔌 Hardware Setup

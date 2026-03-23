@@ -610,16 +610,28 @@ void sendHomeAssistantDiscovery() {
   client.publish("homeassistant/sensor/esp32_gaszaehler_flow/config", p5.c_str(), true);
   delay(100);
 
-  // 6. Online
-  String p6 = "{\"name\":\"Online\",\"stat_t\":\"" + String(mqtt_availability_topic) + "\",\"pl_on\":\"online\",\"pl_off\":\"offline\",\"dev_cla\":\"connectivity\",\"uniq_id\":\"esp32_gaszaehler_online\",\"dev\":" + dev + "}";
-  client.publish("homeassistant/binary_sensor/esp32_gaszaehler_online/config", p6.c_str(), true);
+  // 6. Brennwert (kWh/m³)
+  String p6 = "{\"name\":\"Brennwert\",\"stat_t\":\"" + String(mqtt_topic) + "_brennwert\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"kWh/m\\u00b3\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_brennwert\",\"dev\":" + dev + "}";
+  client.publish("homeassistant/sensor/esp32_gaszaehler_brennwert/config", p6.c_str(), true);
+  delay(100);
+
+  // 7. Z-Zahl (Korrekturfaktor)
+  String p7 = "{\"name\":\"Z-Zahl\",\"stat_t\":\"" + String(mqtt_topic) + "_z\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_z_zahl\",\"dev\":" + dev + "}";
+  client.publish("homeassistant/sensor/esp32_gaszaehler_z_zahl/config", p7.c_str(), true);
+  delay(100);
+
+  // 8. Online
+  String p8 = "{\"name\":\"Online\",\"stat_t\":\"" + String(mqtt_availability_topic) + "\",\"pl_on\":\"online\",\"pl_off\":\"offline\",\"dev_cla\":\"connectivity\",\"uniq_id\":\"esp32_gaszaehler_online\",\"dev\":" + dev + "}";
+  client.publish("homeassistant/binary_sensor/esp32_gaszaehler_online/config", p8.c_str(), true);
   
-  Serial.println("HA Discovery gesendet (6 Entities)");
+  Serial.println("HA Discovery gesendet (8 Entities)");
   Serial.println("Sensoren werden nach der ersten M-Bus Messung sichtbar!");
   Serial.println("Topics:");
   Serial.println("  - Volume: " + String(mqtt_topic));
   Serial.println("  - Energy: " + String(mqtt_topic) + "_energy");
   Serial.println("  - Flow: " + String(mqtt_topic) + "_flow");
+  Serial.println("  - Brennwert: " + String(mqtt_topic) + "_brennwert");
+  Serial.println("  - Z-Zahl: " + String(mqtt_topic) + "_z");
   Serial.println("  - WiFi: " + String(mqtt_topic) + "_wifi");
   Serial.println("  - M-Bus Rate: " + String(mqtt_topic) + "_mbus_rate");
   Serial.println("  - Availability: " + String(mqtt_availability_topic));
@@ -3085,7 +3097,17 @@ void loop() {
               String flowTopic = String(mqtt_topic) + "_flow";
               client.publish(flowTopic.c_str(), String(lastFlowM3h, 4).c_str(), true); // retained!
               addLog("MQTT: Durchfluss - " + String(lastFlowM3h, 4) + " m³/h");
-              
+
+              // Brennwert publishen (kWh/m³)
+              String brennwertTopic = String(mqtt_topic) + "_brennwert";
+              client.publish(brennwertTopic.c_str(), String(gas_calorific_value, 6).c_str(), true); // retained!
+              addLog("MQTT: Brennwert - " + String(gas_calorific_value, 6) + " kWh/m³");
+
+              // Z-Zahl publishen (Korrekturfaktor)
+              String zTopic = String(mqtt_topic) + "_z";
+              client.publish(zTopic.c_str(), String(gas_correction_factor, 6).c_str(), true); // retained!
+              addLog("MQTT: Z-Zahl - " + String(gas_correction_factor, 6));
+
               // Additional HA sensors (nach Energy/Flow-Publish)
               String wifiTopic = String(mqtt_topic) + "_wifi";
               client.publish(wifiTopic.c_str(), String(WiFi.RSSI()).c_str(), true); // retained!
