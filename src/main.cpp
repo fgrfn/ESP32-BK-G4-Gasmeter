@@ -1234,7 +1234,7 @@ const char htmlPage[] PROGMEM = R"rawliteral(
           </div>
         </div>
         <div style="margin-top:12px; font-size:0.78em; color:var(--text-muted);">
-          Grundpreis: <span id="costBasePriceDisplay">--</span> &euro;/Monat &nbsp;&bull;&nbsp; Arbeitspreis: <span id="costWorkPriceDisplay">--</span> &euro;/kWh
+          Grundpreis: <span id="costBasePriceDisplay">--</span> &euro;/Monat &nbsp;&bull;&nbsp; Arbeitspreis: <span id="costWorkPriceDisplay">--</span> ct/kWh
         </div>
       </div>
 
@@ -1368,9 +1368,9 @@ const char htmlPage[] PROGMEM = R"rawliteral(
             <small style="color: var(--text-muted);">Monatlicher Grundpreis inkl. Messstellenentgelt (siehe Gasrechnung)</small>
           </div>
           <div class="form-group">
-            <label>Arbeitspreis (&#8364;/kWh)</label>
-            <input type="number" id="gas_work_price" name="gas_work_price" step="0.0001" min="0" max="2">
-            <small style="color: var(--text-muted);">Arbeitspreis pro kWh (typisch 0.06-0.15 &#8364;/kWh, siehe Gasrechnung)</small>
+            <label>Arbeitspreis (ct/kWh)</label>
+            <input type="number" id="gas_work_price" name="gas_work_price" step="0.01" min="0" max="200">
+            <small style="color: var(--text-muted);">Arbeitspreis in Cent pro kWh (typisch 6&ndash;15 ct/kWh, siehe Gasrechnung)</small>
           </div>
 
           <button type="submit" class="btn" style="width: 100%; padding: 16px; font-size: 1.05em; margin-top: 10px;">&#128190; Speichern & Neustart</button>
@@ -1747,7 +1747,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
               if (el('costMonthly')) el('costMonthly').textContent = fmt(costs.cost_monthly);
               if (el('costYearly'))  el('costYearly').textContent  = fmt(costs.cost_yearly);
               if (el('costBasePriceDisplay'))  el('costBasePriceDisplay').textContent  = costs.base_price_monthly.toFixed(2);
-              if (el('costWorkPriceDisplay'))  el('costWorkPriceDisplay').textContent  = costs.work_price_kwh.toFixed(4);
+              if (el('costWorkPriceDisplay'))  el('costWorkPriceDisplay').textContent  = (costs.work_price_kwh * 100).toFixed(2);
             })
             .catch(() => {});
           
@@ -1859,7 +1859,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
           if (el('gas_calorific')) el('gas_calorific').value = (data.gas_calorific || 10.0).toFixed(6);
           if (el('gas_correction')) el('gas_correction').value = (data.gas_correction || 1.0).toFixed(6);
           if (el('gas_base_price')) el('gas_base_price').value = (data.gas_base_price || 10.0).toFixed(2);
-          if (el('gas_work_price')) el('gas_work_price').value = (data.gas_work_price || 0.12).toFixed(4);
+          if (el('gas_work_price')) el('gas_work_price').value = ((data.gas_work_price || 0.12) * 100).toFixed(2);
           
           // Static IP Felder
           const useStaticIp = data.use_static_ip || false;
@@ -2018,7 +2018,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         gas_calorific: parseFloat(formData.get('gas_calorific')),
         gas_correction: parseFloat(formData.get('gas_correction')),
         gas_base_price: parseFloat(formData.get('gas_base_price')),
-        gas_work_price: parseFloat(formData.get('gas_work_price')),
+        gas_work_price: parseFloat(formData.get('gas_work_price')) / 100,
         use_static_ip: document.getElementById('use_static_ip').checked,
         static_ip: formData.get('static_ip'),
         static_gateway: formData.get('static_gateway'),
