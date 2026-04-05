@@ -1213,7 +1213,25 @@ const char htmlPage[] PROGMEM = R"rawliteral(
       </div>
 
       <div class="card">
-        <h2 style="margin-bottom: 20px;">� Aktuelle Werte</h2>
+        <h2 style="margin-bottom: 20px;">&#9830; Aktuelle Werte</h2>
+        <div class="status-grid">
+          <div class="status-item" id="flowItem">
+            <div class="label">&#127754; Durchfluss</div>
+            <div class="value" id="currentFlow">-- m&sup3;/h</div>
+          </div>
+          <div class="status-item">
+            <div class="label">&#9889; Energie</div>
+            <div class="value" id="currentEnergy">-- kWh</div>
+          </div>
+          <div class="status-item">
+            <div class="label">&#128293; Brennwert</div>
+            <div class="value" id="currentCalorific">-- kWh/m&sup3;</div>
+          </div>
+          <div class="status-item">
+            <div class="label">&#9881; Zustandszahl</div>
+            <div class="value" id="currentCorrection">--</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1661,6 +1679,24 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
           }
           
           if (el('pollInterval')) el('pollInterval').textContent = data.pollInterval + 's';
+
+          // Aktuelle Werte
+          if (el('currentFlow')) {
+            el('currentFlow').textContent = data.flow_m3h > 0 ? data.flow_m3h.toFixed(4) + ' m\u00B3/h' : '-- m\u00B3/h';
+          }
+          if (el('currentEnergy')) {
+            if (data.volume >= 0 && data.calorific > 0) {
+              el('currentEnergy').textContent = (data.volume * data.calorific * data.correction).toFixed(3) + ' kWh';
+            } else {
+              el('currentEnergy').textContent = '-- kWh';
+            }
+          }
+          if (el('currentCalorific')) {
+            el('currentCalorific').textContent = data.calorific > 0 ? data.calorific.toFixed(6) + ' kWh/m\u00B3' : '--';
+          }
+          if (el('currentCorrection')) {
+            el('currentCorrection').textContent = data.correction > 0 ? data.correction.toFixed(6) : '--';
+          }
           
           // IP-Adresse in Update-Seite eintragen
           const ipAddress = data.ipAddress || window.location.hostname || '10.10.40.109';
@@ -2221,7 +2257,7 @@ void handleAPI(AsyncWebServerRequest *request) {
   json += "\"apSSID\":\"" + String(ap_ssid) + "\",";
   json += "\"ipAddress\":\"" + (apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "\",";
   json += "\"uptime\":" + String(millis()) + ",";
-  json += "\"lastUpdate\":0,";
+  json += "\"lastUpdate\":" + String(lastVolumeTimestamp) + ",";
   json += "\"timeInitialized\":" + String(timeInitialized ? "true" : "false") + ",";
   json += "\"pollInterval\":" + String(poll_interval / 1000) + ",";
   // backward-compatible key expected by the WebUI
