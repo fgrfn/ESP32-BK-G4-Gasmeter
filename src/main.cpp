@@ -115,10 +115,6 @@ MBusStats mbusStats;
 String lastErrorMessage = "";
 
 // ---- Live Log System ----
-struct LogEntry {
-  unsigned long timestamp;
-  String message;
-};
 std::vector<LogEntry> logBuffer;
 
 void addLog(const String& msg) {
@@ -161,7 +157,6 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
-const size_t OTA_BUFFER_SIZE = 1460;
 
 // ---- Rate Limiting ----
 struct RateLimitInfo {
