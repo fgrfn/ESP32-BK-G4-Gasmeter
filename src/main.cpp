@@ -31,6 +31,8 @@ char mqtt_client_id[MQTT_CLIENT_ID_MAX_LEN] = DEFAULT_MQTT_CLIENT_ID;
 unsigned long poll_interval = DEFAULT_POLL_INTERVAL;
 float gas_calorific_value = DEFAULT_GAS_CALORIFIC;
 float gas_correction_factor = DEFAULT_GAS_CORRECTION;
+float gas_base_price_monthly = 10.0;
+float gas_work_price_per_kwh = 0.12;
 bool use_static_ip = false;
 char static_ip[IP_ADDRESS_MAX_LEN] = DEFAULT_STATIC_IP;
 char static_gateway[IP_ADDRESS_MAX_LEN] = DEFAULT_GATEWAY;
@@ -224,6 +226,8 @@ void loadConfig() {
   DEBUG_LOG("loadConfig: poll_interval aus Flash = " + String(poll_interval) + " ms");
   gas_calorific_value = preferences.getFloat("gas_calorific", DEFAULT_GAS_CALORIFIC);
   gas_correction_factor = preferences.getFloat("gas_correction", DEFAULT_GAS_CORRECTION);
+  gas_base_price_monthly = preferences.getFloat("gas_base_price", 10.0);
+  gas_work_price_per_kwh = preferences.getFloat("gas_work_price", 0.12);
   use_static_ip = preferences.getBool("use_static_ip", false);
   preferences.getString("static_ip", static_ip, sizeof(static_ip));
   preferences.getString("static_gateway", static_gateway, sizeof(static_gateway));
@@ -278,6 +282,8 @@ void saveConfig() {
   unsigned long rb_after = preferences.getULong("poll_interval", 0);
   preferences.putFloat("gas_calorific", gas_calorific_value);
   preferences.putFloat("gas_correction", gas_correction_factor);
+  preferences.putFloat("gas_base_price", gas_base_price_monthly);
+  preferences.putFloat("gas_work_price", gas_work_price_per_kwh);
   preferences.putBool("use_static_ip", use_static_ip);
   preferences.putString("static_ip", static_ip);
   preferences.putString("static_gateway", static_gateway);
@@ -2720,11 +2726,11 @@ self.addEventListener('fetch', e => {
 // Kosten berechnen
 void handleCostCalculation(AsyncWebServerRequest *request) {
   float volume = lastVolume;
-  float energy_kwh = volume * Config::gas_calorific_value * Config::gas_correction_factor;
-  
+  float energy_kwh = volume * gas_calorific_value * gas_correction_factor;
+
   // Kosten = Arbeitspreis * kWh + Grundpreis (anteilig)
-  float costWork = energy_kwh * Config::gas_work_price_per_kwh;
-  float costBase = Config::gas_base_price_monthly / 30.0; // Pro Tag
+  float costWork = energy_kwh * gas_work_price_per_kwh;
+  float costBase = gas_base_price_monthly / 30.0; // Pro Tag
   
   // Hochrechnung auf Monat/Jahr basierend auf aktuellem Durchfluss
   float dailyCost = costWork + costBase;
@@ -2739,8 +2745,8 @@ void handleCostCalculation(AsyncWebServerRequest *request) {
   json += "\"cost_total_today\":" + String(dailyCost, 2) + ",";
   json += "\"cost_monthly\":" + String(monthlyCost, 2) + ",";
   json += "\"cost_yearly\":" + String(yearlyCost, 2) + ",";
-  json += "\"base_price_monthly\":" + String(Config::gas_base_price_monthly, 2) + ",";
-  json += "\"work_price_kwh\":" + String(Config::gas_work_price_per_kwh, 4) + "";
+  json += "\"base_price_monthly\":" + String(gas_base_price_monthly, 2) + ",";
+  json += "\"work_price_kwh\":" + String(gas_work_price_per_kwh, 4) + "";
   json += "}";
   
   request->send(200, "application/json", json);
@@ -2890,6 +2896,7 @@ void setup() {
   
   addLog("Lade Konfiguration...");
   loadConfig();
+  Config::load(); // Config-Klassenstatik aus NVS befüllen (für exportToJson, Kostenberechnung)
   addLog("Starte WiFi...");
   setup_wifi();
   
