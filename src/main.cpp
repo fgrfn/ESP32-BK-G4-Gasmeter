@@ -2,76 +2,62 @@
 #include <WiFi.h>
 #include <PubSubClient.h>
 #include <ArduinoOTA.h>
-#include <WebServer.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
 #include <Preferences.h>
 #include <ESPmDNS.h>
 #include <Update.h>
 #include <ESP32Ping.h>
 #include <time.h>
 #include <vector>
+#include <map>
+#include "constants.h"
+#include "Logger.h"
+#include "Config.h"
 
-// ---- Firmware Version ----
-const char* FIRMWARE_VERSION = "2.0.5";
-
-// ---- ANSI Farb-Codes für Serial Monitor (deaktiviert für reine Text-Ausgabe) ----
-#define ANSI_RESET   ""
-#define ANSI_BOLD    ""
-#define ANSI_RED     ""
-#define ANSI_GREEN   ""
-#define ANSI_YELLOW  ""
-#define ANSI_BLUE    ""
-#define ANSI_MAGENTA ""
-#define ANSI_CYAN    ""
-#define ANSI_WHITE   ""
+// ANSI color codes now defined in constants.h
 
 // ---- Konfiguration ----
-char ssid[32] = "SSID";
-char password[64] = "Password";
-char hostname[32] = "ESP32-GasZaehler"; // mDNS Hostname
-char mqtt_server[64] = "192.168.178.1"; // MQTT Broker IP
-int mqtt_port = 1883;
-char mqtt_user[64] = ""; // MQTT Username (optional)
-char mqtt_pass[64] = ""; // MQTT Password (optional)
-char mqtt_topic[64] = "gaszaehler/verbrauch";
-char mqtt_availability_topic[64] = "gaszaehler/availability";
-char mqtt_client_id[32] = "ESP32GasClient";
-unsigned long poll_interval = 30000; // Standard: 30 Sekunden
-float gas_calorific_value = 10.0; // kWh/m - Brennwert (typisch 8-12 kWh/m)
-float gas_correction_factor = 1.0; // Z-Zahl Korrekturfaktor (typisch 0.95-1.0)
+char ssid[SSID_MAX_LEN] = DEFAULT_SSID;
+char password[PASSWORD_MAX_LEN] = DEFAULT_PASSWORD;
+char hostname[HOSTNAME_MAX_LEN] = DEFAULT_HOSTNAME;
+char mqtt_server[MQTT_SERVER_MAX_LEN] = DEFAULT_MQTT_SERVER;
+int mqtt_port = DEFAULT_MQTT_PORT;
+char mqtt_user[MQTT_USER_MAX_LEN] = "";
+char mqtt_pass[MQTT_PASS_MAX_LEN] = "";
+char mqtt_topic[MQTT_TOPIC_MAX_LEN] = DEFAULT_MQTT_TOPIC;
+char mqtt_availability_topic[MQTT_TOPIC_MAX_LEN] = "gaszaehler/availability";
+char mqtt_client_id[MQTT_CLIENT_ID_MAX_LEN] = DEFAULT_MQTT_CLIENT_ID;
+unsigned long poll_interval = DEFAULT_POLL_INTERVAL;
+float gas_calorific_value = DEFAULT_GAS_CALORIFIC;
+float gas_correction_factor = DEFAULT_GAS_CORRECTION;
 bool use_static_ip = false;
-char static_ip[16] = "192.168.1.100";
-char static_gateway[16] = "192.168.1.1";
-char static_subnet[16] = "255.255.255.0";
-char static_dns[16] = "192.168.1.1";
+char static_ip[IP_ADDRESS_MAX_LEN] = DEFAULT_STATIC_IP;
+char static_gateway[IP_ADDRESS_MAX_LEN] = DEFAULT_GATEWAY;
+char static_subnet[IP_ADDRESS_MAX_LEN] = DEFAULT_SUBNET;
+char static_dns[IP_ADDRESS_MAX_LEN] = DEFAULT_DNS;
 
 // ---- Deep Sleep Konfiguration ----
 bool enable_deep_sleep = false;
 unsigned long deep_sleep_duration = 300; // Sekunden (5 Minuten)
 unsigned long last_activity = 0;
-const unsigned long INACTIVITY_TIMEOUT = 600000; // 10 Minuten keine Aktivitt
 
 Preferences preferences;
-Preferences historyPrefs;
 bool haDiscoverySent = false;
 
 // ---- WiFi AP Mode ----
 bool apMode = false;
-const char* ap_ssid = "ESP32-GasZaehler";
-const char* ap_password = "12345678"; // Mindestens 8 Zeichen (bei Bedarf in Config ändern)
-const unsigned long AP_MODE_TIMEOUT = 300000; // 5 Minuten im AP-Modus
+const char* ap_ssid = AP_SSID;
+const char* ap_password = AP_PASSWORD;
 
 // ---- Status LED ----
-const int STATUS_LED_PIN = 2; // Onboard LED (GPIO2)
 unsigned long lastLedBlink = 0;
 bool ledState = false;
 
-// ---- Config Reset Button ----
-const int RESET_BUTTON_PIN = 0; // BOOT Button (GPIO0)
-
 // ---- NTP Zeitserver ----
-const char* ntpServer = "de.pool.ntp.org";
-const long gmtOffset_sec = 3600; // UTC+1 (MEZ)
-const int daylightOffset_sec = 3600; // Automatisch erkannt
+const char* ntpServer = NTP_SERVER;
+const long gmtOffset_sec = GMT_OFFSET_SEC;
+const int daylightOffset_sec = DAYLIGHT_OFFSET_SEC;
 bool timeInitialized = false;
 
 // Automatische Sommerzeit-Erkennung fr Europa
@@ -111,7 +97,7 @@ struct ErrorStats {
   unsigned long mqttErrors = 0;
   unsigned long wifiDisconnects = 0;
   unsigned long lastError = 0;
-  char lastErrorMsg[64] = "";
+  char lastErrorMsg[ERROR_MSG_MAX_LEN] = "";
 };
 ErrorStats errorStats;
 
@@ -129,7 +115,6 @@ MBusStats mbusStats;
 String lastErrorMessage = "";
 
 // ---- Live Log System ----
-const int MAX_LOG_ENTRIES = 50;
 struct LogEntry {
   unsigned long timestamp;
   String message;
@@ -174,35 +159,52 @@ void addLog(const String& msg) {
 
 WiFiClient espClient;
 PubSubClient client(espClient);
-WebServer server(80);
+AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 const size_t OTA_BUFFER_SIZE = 1460;
 
-// ---- Verlaufsdaten ----
-struct MeasurementData {
-  unsigned long timestamp;
-  float volume;
+// ---- Rate Limiting ----
+struct RateLimitInfo {
+  unsigned long lastRequest = 0;
+  uint16_t requestCount = 0;
 };
-std::vector<MeasurementData> measurements;
-const size_t MAX_MEASUREMENTS = 50;
+std::map<IPAddress, RateLimitInfo> rateLimitMap;
+const unsigned long RATE_LIMIT_WINDOW = 60000; // 1 Minute
+const uint16_t RATE_LIMIT_MAX = 100; // Max 100 Requests pro Minute
+unsigned long lastRateLimitCleanup = 0;
+
+// ---- Health Dashboard ----
+struct HealthStats {
+  unsigned long bootTime = 0;
+  esp_reset_reason_t bootReason;
+  uint32_t wifiReconnects = 0;
+  uint32_t mqttReconnects = 0;
+  uint32_t mbusErrors = 0;
+  float minHeapFree = 0xFFFFFFFF;
+  unsigned long uptime = 0;
+};
+HealthStats healthStats;
+
+// ---- MQTT Discovery Cache ----
+String cachedDiscoveryVolume = "";
+String cachedDiscoveryFlow = "";
+String cachedDiscoveryEnergy = "";
+
+// ---- Verlaufsdaten ----
 float lastVolume = -1;
 float lastFlowM3h = 0.0;
 unsigned long lastVolumeTimestamp = 0;
 unsigned long lastMemoryCheck = 0;
-const unsigned long MEMORY_CHECK_INTERVAL = 60000; // Jede Minute
 
 // ---- M-Bus UART ----
 HardwareSerial mbusSerial(1); // UART1
-const int MBUS_RX_PIN = 16;   // GPIO16 (RX2) fr ESP32 DevKit V1
-const int MBUS_TX_PIN = 17;   // GPIO17 (TX2) fr ESP32 DevKit V1
-const long MBUS_BAUD = 2400;
 
 // ---- MBUS State Maschine ----
 enum MBusState { MBUS_IDLE, MBUS_WAIT_RESPONSE };
 MBusState mbusState = MBUS_IDLE;
 unsigned long mbusLastAction = 0;
-const unsigned long MBUS_RESPONSE_TIMEOUT = 500; // ms
 
-uint8_t mbusBuffer[256];
+uint8_t mbusBuffer[MBUS_BUFFER_SIZE];
 size_t mbusLen = 0;
 
 // ---- Konfiguration laden/speichern ----
@@ -223,10 +225,10 @@ void loadConfig() {
   preferences.getString("mqtt_user", mqtt_user, sizeof(mqtt_user));
   preferences.getString("mqtt_pass", mqtt_pass, sizeof(mqtt_pass));
   preferences.getString("mqtt_topic", mqtt_topic, sizeof(mqtt_topic));
-  poll_interval = preferences.getULong("poll_interval", 30000);
-  Serial.println("DEBUG loadConfig: poll_interval aus Flash = " + String(poll_interval) + " ms");
-  gas_calorific_value = preferences.getFloat("gas_calorific", 10.0);
-  gas_correction_factor = preferences.getFloat("gas_correction", 1.0);
+  poll_interval = preferences.getULong("poll_interval", DEFAULT_POLL_INTERVAL);
+  DEBUG_LOG("loadConfig: poll_interval aus Flash = " + String(poll_interval) + " ms");
+  gas_calorific_value = preferences.getFloat("gas_calorific", DEFAULT_GAS_CALORIFIC);
+  gas_correction_factor = preferences.getFloat("gas_correction", DEFAULT_GAS_CORRECTION);
   use_static_ip = preferences.getBool("use_static_ip", false);
   preferences.getString("static_ip", static_ip, sizeof(static_ip));
   preferences.getString("static_gateway", static_gateway, sizeof(static_gateway));
@@ -234,67 +236,27 @@ void loadConfig() {
   preferences.getString("static_dns", static_dns, sizeof(static_dns));
   preferences.end();
   
-  // Verlaufsdaten aus Flash laden
-  // Erst versuchen mit read-write zu oeffnen um Namespace zu erstellen falls noetig
-  if (!historyPrefs.begin("gas-history", false)) {
-    Serial.println("WARN: Konnte gas-history Namespace nicht oeffnen/erstellen");
-  }
-  size_t dataCount = historyPrefs.getUInt("count", 0);
-  
-  // Validierung: Nicht mehr als MAX_MEASUREMENTS laden
-  if (dataCount > MAX_MEASUREMENTS) {
-    Serial.println("WARNUNG: Zu viele gespeicherte Daten (" + String(dataCount) + "), limitiere auf " + String(MAX_MEASUREMENTS));
-    dataCount = MAX_MEASUREMENTS;
-  }
-  
-  if (dataCount > 0) {
-    Serial.println("Lade gespeicherte Verlaufsdaten: " + String(dataCount) + " Eintraege");
-    measurements.clear(); // Sicherstellen dass leer
-    
-    for (size_t i = 0; i < dataCount; i++) {
-      char key[16];
-      
-      snprintf(key, sizeof(key), "ts_%d", i);
-      unsigned long timestamp = historyPrefs.getULong(key, 0);
-      
-      snprintf(key, sizeof(key), "vol_%d", i);
-      float volume = historyPrefs.getFloat(key, 0.0);
-      
-      // Nur valide Werte laden
-      if (timestamp > 0 && volume >= 0 && volume < 999999) {
-        measurements.push_back({timestamp, volume});
-      }
-    }
-    
-    Serial.println("Erfolgreich " + String(measurements.size()) + " Messwerte geladen");
-    if (!measurements.empty()) {
-      lastVolume = measurements.back().volume;
-      lastVolumeTimestamp = measurements.back().timestamp;
-    }
-  }
-  historyPrefs.end();
-  
   // Validierung: Poll-Intervall muss zwischen 10s und 5min liegen.
-  // Wenn im Flash ein ungültiger (z.B. 0) Wert gespeichert wurde, fallback auf 30s.
-  Serial.println("DEBUG loadConfig: poll_interval vor Validierung = " + String(poll_interval) + " ms");
-  if (poll_interval < 10000) {
-    Serial.println("WARN: Ungueltiger poll_interval im Flash: " + String(poll_interval) + " ms - setze auf Default 30000 ms");
-    poll_interval = 30000; // Fallback auf 30s statt 10s, um unerwartete 10s-Reset zu vermeiden
+  // Wenn im Flash ein ungültiger (z.B. 0) Wert gespeichert wurde, fallback auf Default.
+  DEBUG_LOG("loadConfig: poll_interval vor Validierung = " + String(poll_interval) + " ms");
+  if (poll_interval < MIN_POLL_INTERVAL) {
+    Serial.println("WARN: Ungueltiger poll_interval im Flash: " + String(poll_interval) + " ms - setze auf Default " + String(DEFAULT_POLL_INTERVAL) + " ms");
+    poll_interval = DEFAULT_POLL_INTERVAL;
   }
-  if (poll_interval > 300000) poll_interval = 300000; // Maximum 5min
-  Serial.println("DEBUG loadConfig: poll_interval nach Validierung = " + String(poll_interval) + " ms");
+  if (poll_interval > MAX_POLL_INTERVAL) poll_interval = MAX_POLL_INTERVAL;
+  DEBUG_LOG("loadConfig: poll_interval nach Validierung = " + String(poll_interval) + " ms");
   
   // Wenn noch nie konfiguriert oder SSID leer -> Defaults setzen
   if (!configDone || strlen(ssid) == 0) {
     Serial.println("Keine gltige Konfiguration gefunden - verwende Defaults");
-    strcpy(ssid, "SSID");
-    strcpy(password, "Password");
+    strcpy(ssid, DEFAULT_SSID);
+    strcpy(password, DEFAULT_PASSWORD);
   }
   
   // Fallback auf Defaults wenn leer
-  if (strlen(hostname) == 0) strcpy(hostname, "ESP32-GasZaehler");
-  if (strlen(mqtt_server) == 0) strcpy(mqtt_server, "192.168.178.1");
-  if (strlen(mqtt_topic) == 0) strcpy(mqtt_topic, "gaszaehler/verbrauch");
+  if (strlen(hostname) == 0) strcpy(hostname, DEFAULT_HOSTNAME);
+  if (strlen(mqtt_server) == 0) strcpy(mqtt_server, DEFAULT_MQTT_SERVER);
+  if (strlen(mqtt_topic) == 0) strcpy(mqtt_topic, DEFAULT_MQTT_TOPIC);
   
   // Availability Topic generieren
   snprintf(mqtt_availability_topic, sizeof(mqtt_availability_topic), "%s_availability", mqtt_topic);
@@ -302,10 +264,10 @@ void loadConfig() {
 
 void saveConfig() {
   // Validierung vor dem Speichern
-  Serial.println("DEBUG saveConfig: poll_interval vor Validierung = " + String(poll_interval) + " ms");
-  if (poll_interval < 10000) poll_interval = 10000;
-  if (poll_interval > 300000) poll_interval = 300000; // Max 5min
-  Serial.println("DEBUG saveConfig: poll_interval nach Validierung = " + String(poll_interval) + " ms");
+  DEBUG_LOG("saveConfig: poll_interval vor Validierung = " + String(poll_interval) + " ms");
+  if (poll_interval < MIN_POLL_INTERVAL) poll_interval = MIN_POLL_INTERVAL;
+  if (poll_interval > MAX_POLL_INTERVAL) poll_interval = MAX_POLL_INTERVAL;
+  DEBUG_LOG("saveConfig: poll_interval nach Validierung = " + String(poll_interval) + " ms");
   
   preferences.begin("gas-config", false);
   preferences.putString("ssid", ssid);
@@ -330,34 +292,10 @@ void saveConfig() {
   preferences.end();
 
   Serial.println("Konfiguration gespeichert");
-  Serial.println("Poll-Intervall: " + String(poll_interval / 1000) + "s (" + String(poll_interval) + "ms) saved_readback=" + String(rb_after) + " ms");
-}
-
-// ---- Persistent Data Storage ----
-void saveHistory() {
-  historyPrefs.begin("gas-history", false);
-  
-  // Alte Daten lschen
-  historyPrefs.clear();
-  
-  // Anzahl speichern
-  size_t saveCount = min(measurements.size(), (size_t)MAX_MEASUREMENTS);
-  historyPrefs.putUInt("count", saveCount);
-  
-  // Neueste Messwerte speichern
-  for (size_t i = 0; i < saveCount; i++) {
-    size_t idx = measurements.size() - saveCount + i; // Die neuesten X Werte
-    char key[16];
-    
-    snprintf(key, sizeof(key), "ts_%d", i);
-    historyPrefs.putULong(key, measurements[idx].timestamp);
-    
-    snprintf(key, sizeof(key), "vol_%d", i);
-    historyPrefs.putFloat(key, measurements[idx].volume);
-  }
-  
-  historyPrefs.end();
-  Serial.println("History gespeichert: " + String(saveCount) + " Eintraege");
+  char msg[100];
+  snprintf(msg, sizeof(msg), "Poll-Intervall: %lus (%lums) saved_readback=%lu ms", 
+           poll_interval / 1000, poll_interval, rb_after);
+  Serial.println(msg);
 }
 
 // ---- Fehler loggen ----
@@ -375,40 +313,41 @@ void checkMemory() {
   uint32_t minFreeHeap = ESP.getMinFreeHeap();
   uint32_t heapSize = ESP.getHeapSize();
   
-  // Warnung wenn weniger als 10KB frei
-  if (freeHeap < 10240) {
-    Serial.println("WARNUNG: Wenig freier Speicher: " + String(freeHeap) + " Bytes");
+  // Health Stats updaten
+  healthStats.uptime = millis() - healthStats.bootTime;
+  if (freeHeap < healthStats.minHeapFree) {
+    healthStats.minHeapFree = freeHeap;
+  }
+  
+  // Warnung wenn weniger als MEMORY_WARNING_THRESHOLD frei
+  if (freeHeap < MEMORY_WARNING_THRESHOLD) {
+    char msg[80];
+    snprintf(msg, sizeof(msg), "WARNUNG: Wenig freier Speicher: %u Bytes", freeHeap);
+    Serial.println(msg);
     
-    // Notfall: Alte Logs lschen
+    // Notfall: Alte Logs löschen
     if (logBuffer.size() > 20) {
       size_t oldSize = logBuffer.size();
       logBuffer.erase(logBuffer.begin(), logBuffer.begin() + 10);
-      Serial.println("Notfall-Cleanup: " + String(oldSize - logBuffer.size()) + " alte Logs gelscht");
-    }
-    
-    // Notfall: Alte Messwerte lschen
-    if (measurements.size() > 30 && freeHeap < 5120) {
-      size_t oldSize = measurements.size();
-      measurements.erase(measurements.begin(), measurements.begin() + 10);
-      Serial.println("Notfall-Cleanup: " + String(oldSize - measurements.size()) + " alte Messwerte gelscht");
-      // Flash auch aktualisieren
-      saveHistory();
+      snprintf(msg, sizeof(msg), "Notfall-Cleanup: %u alte Logs geloescht", oldSize - logBuffer.size());
+      Serial.println(msg);
     }
   }
   
-  //KRITISCH: Neustart wenn < 3KB
-  if (freeHeap < 3072) {
-    Serial.println("KRITISCH: Extrem wenig RAM! Speichere Daten und starte neu...");
-    saveHistory();
+  // KRITISCH: Neustart wenn < MEMORY_CRITICAL_THRESHOLD
+  if (freeHeap < MEMORY_CRITICAL_THRESHOLD) {
+    Serial.println("KRITISCH: Extrem wenig RAM! Neustart...");
     delay(1000);
     ESP.restart();
   }
   
   // Statistik ausgeben
   float heapUsage = ((heapSize - freeHeap) * 100.0) / heapSize;
-  Serial.println("Heap: Free=" + String(freeHeap) + " Min=" + String(minFreeHeap) + 
-                 " Usage=" + String(heapUsage, 1) + "% | " +
-                 "Logs=" + String(logBuffer.size()) + " Measurements=" + String(measurements.size()));
+  char stats[100];
+  snprintf(stats, sizeof(stats), 
+           "Heap: Free=%u Min=%u Usage=%.1f%% | Logs=%u",
+           freeHeap, minFreeHeap, heapUsage, logBuffer.size());
+  Serial.println(stats);
 }
 
 // ---- Status LED ----
@@ -417,33 +356,88 @@ void updateStatusLED() {
   
   if (apMode) {
     // Sehr schnelles Blinken: AP-Modus aktiv
-    if (now - lastLedBlink >= 100) {
+    if (now - lastLedBlink >= LED_BLINK_AP_MODE) {
       ledState = !ledState;
       digitalWrite(STATUS_LED_PIN, ledState ? HIGH : LOW);
       lastLedBlink = now;
     }
   } else if (WiFi.status() != WL_CONNECTED) {
     // Schnelles Blinken: WLAN Problem
-    if (now - lastLedBlink >= 200) {
+    if (now - lastLedBlink >= LED_BLINK_WIFI_ERROR) {
       ledState = !ledState;
       digitalWrite(STATUS_LED_PIN, ledState ? HIGH : LOW);
       lastLedBlink = now;
     }
   } else if (!client.connected()) {
     // Mittleres Blinken: MQTT Problem
-    if (now - lastLedBlink >= 500) {
+    if (now - lastLedBlink >= LED_BLINK_MQTT_ERROR) {
       ledState = !ledState;
       digitalWrite(STATUS_LED_PIN, ledState ? HIGH : LOW);
       lastLedBlink = now;
     }
   } else {
     // Langsames Blinken: Alles OK
-    if (now - lastLedBlink >= 2000) {
+    if (now - lastLedBlink >= LED_BLINK_NORMAL) {
       ledState = !ledState;
       digitalWrite(STATUS_LED_PIN, ledState ? HIGH : LOW);
       lastLedBlink = now;
     }
   }
+}
+
+// ---- WebSocket Broadcast ----
+void broadcastWebSocketUpdate() {
+  if (ws.count() == 0) return; // Keine Clients verbunden
+  
+  // Kompaktes JSON für schnelle Updates
+  String json = "{";
+  json += "\"volume\":" + String(lastVolume, 2) + ",";
+  json += "\"flow\":" + String(lastFlowM3h, 4) + ",";
+  json += "\"wifi\":" + String(WiFi.status() == WL_CONNECTED ? "1" : "0") + ",";
+  json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
+  json += "\"mqtt\":" + String(client.connected() ? "1" : "0") + ",";
+  json += "\"heap\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"uptime\":" + String(millis());
+  json += "}";
+  
+  ws.textAll(json);
+}
+
+// ---- Rate Limiting ----
+bool checkRateLimit(IPAddress ip) {
+  unsigned long now = millis();
+  
+  // Cleanup alte Einträge alle 5 Minuten
+  if (now - lastRateLimitCleanup > 300000) {
+    auto it = rateLimitMap.begin();
+    while (it != rateLimitMap.end()) {
+      if (now - it->second.lastRequest > RATE_LIMIT_WINDOW * 2) {
+        it = rateLimitMap.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    lastRateLimitCleanup = now;
+  }
+  
+  // Rate Limit Check
+  auto& info = rateLimitMap[ip];
+  
+  // Neues Zeitfenster beginnen?
+  if (now - info.lastRequest > RATE_LIMIT_WINDOW) {
+    info.requestCount = 0;
+    info.lastRequest = now;
+  }
+  
+  info.requestCount++;
+  
+  // Limit überschritten?
+  if (info.requestCount > RATE_LIMIT_MAX) {
+    Logger::warn("Rate Limit für " + ip.toString() + " überschritten: " + String(info.requestCount) + " requests");
+    return false;
+  }
+  
+  return true;
 }
 
 // ---- Forward declarations ----
@@ -452,7 +446,7 @@ void startAPMode();
 // ---- WLAN Setup ----
 void setup_wifi() {
   // Wenn SSID "SSID" ist, direkt in AP-Modus gehen
-  if (strcmp(ssid, "SSID") == 0 || strlen(ssid) == 0) {
+  if (strcmp(ssid, DEFAULT_SSID) == 0 || strlen(ssid) == 0) {
     Serial.println("Keine WLAN-Konfiguration gefunden. Starte Access Point...");
     startAPMode();
     return;
@@ -471,7 +465,9 @@ void setup_wifi() {
     if (!WiFi.config(ip, gateway, subnet, dns)) {
       Serial.println("Static IP Konfiguration fehlgeschlagen!");
     } else {
-      Serial.println("Static IP konfiguriert: " + String(static_ip));
+      char msg[60];
+      snprintf(msg, sizeof(msg), "Static IP konfiguriert: %s", static_ip);
+      Serial.println(msg);
     }
   }
   
@@ -480,7 +476,7 @@ void setup_wifi() {
   Serial.println(ssid);
   
   unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < 15000) {
+  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT) {
     delay(500);
     Serial.print(".");
   }
@@ -489,11 +485,15 @@ void setup_wifi() {
   if (WiFi.status() == WL_CONNECTED) {
     Serial.print("Verbunden! IP: ");
     Serial.println(WiFi.localIP());
-    addLog("WiFi verbunden: " + WiFi.localIP().toString());
+    char msg[60];
+    snprintf(msg, sizeof(msg), "WiFi verbunden: %s", WiFi.localIP().toString().c_str());
+    addLog(msg);
     apMode = false;
   } else {
     Serial.println("WLAN-Verbindung fehlgeschlagen!");
-    addLog("WiFi: Verbindung zu " + String(ssid) + " fehlgeschlagen");
+    char msg[80];
+    snprintf(msg, sizeof(msg), "WiFi: Verbindung zu %s fehlgeschlagen", ssid);
+    addLog(msg);
     logError("WLAN Verbindung fehlgeschlagen");
     Serial.println("Starte Access Point fr Konfiguration...");
     addLog("Starte Access Point Modus");
@@ -561,6 +561,9 @@ void reconnect() {
       }
       
       haDiscoverySent = false; // Discovery neu senden nach Reconnect
+      
+      // WebSocket Update broadcasten
+      broadcastWebSocketUpdate();
     } else {
       String errMsg = "MQTT: Fehler rc=" + String(client.state());
       if (client.state() == 5) errMsg += " (Authentifizierung fehlgeschlagen)";
@@ -586,13 +589,17 @@ void sendHomeAssistantDiscovery() {
   String dev = "{\"ids\":[\"esp32_gas\"],\"name\":\"Gaszähler\",\"mdl\":\"BK-G4\",\"mf\":\"ESP32\",\"sw\":\"" + String(FIRMWARE_VERSION) + "\"}";
   
   // 1. Gas Volume (m³ auf mqtt_topic)
-  String p1 = "{\"name\":\"Zählerstand\",\"stat_t\":\"" + String(mqtt_topic) + "\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"m³\",\"dev_cla\":\"gas\",\"stat_cla\":\"total_increasing\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_zaehlerstand\",\"dev\":" + dev + "}";
-  client.publish("homeassistant/sensor/esp32_gaszaehler_zaehlerstand/config", p1.c_str(), true);
+  if (cachedDiscoveryVolume.length() == 0) {
+    cachedDiscoveryVolume = "{\"name\":\"Zählerstand\",\"stat_t\":\"" + String(mqtt_topic) + "\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"m³\",\"dev_cla\":\"gas\",\"stat_cla\":\"total_increasing\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_zaehlerstand\",\"dev\":" + dev + "}";
+  }
+  client.publish("homeassistant/sensor/esp32_gaszaehler_zaehlerstand/config", cachedDiscoveryVolume.c_str(), true);
   delay(100);
   
   // 2. Energy (kWh auf mqtt_topic_energy)
-  String p2 = "{\"name\":\"Gasverbrauch\",\"stat_t\":\"" + String(mqtt_topic) + "_energy\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"kWh\",\"dev_cla\":\"energy\",\"stat_cla\":\"total_increasing\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_gasverbrauch\",\"dev\":" + dev + "}";
-  client.publish("homeassistant/sensor/esp32_gaszaehler_gasverbrauch/config", p2.c_str(), true);
+  if (cachedDiscoveryEnergy.length() == 0) {
+    cachedDiscoveryEnergy = "{\"name\":\"Gasverbrauch\",\"stat_t\":\"" + String(mqtt_topic) + "_energy\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"kWh\",\"dev_cla\":\"energy\",\"stat_cla\":\"total_increasing\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_gasverbrauch\",\"dev\":" + dev + "}";
+  }
+  client.publish("homeassistant/sensor/esp32_gaszaehler_gasverbrauch/config", cachedDiscoveryEnergy.c_str(), true);
   delay(100);
   
   // 3. WiFi
@@ -606,8 +613,10 @@ void sendHomeAssistantDiscovery() {
   delay(100);
   
   // 5. Gasdurchfluss (m³/h)
-  String p5 = "{\"name\":\"Gasdurchfluss\",\"stat_t\":\"" + String(mqtt_topic) + "_flow\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"m³/h\",\"dev_cla\":\"volume_flow_rate\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_flow\",\"dev\":" + dev + "}";
-  client.publish("homeassistant/sensor/esp32_gaszaehler_flow/config", p5.c_str(), true);
+  if (cachedDiscoveryFlow.length() == 0) {
+    cachedDiscoveryFlow = "{\"name\":\"Gasdurchfluss\",\"stat_t\":\"" + String(mqtt_topic) + "_flow\",\"avty_t\":\"" + String(mqtt_availability_topic) + "\",\"unit_of_meas\":\"m³/h\",\"dev_cla\":\"volume_flow_rate\",\"stat_cla\":\"measurement\",\"val_tpl\":\"{{ value|float }}\",\"uniq_id\":\"esp32_gaszaehler_flow\",\"dev\":" + dev + "}";
+  }
+  client.publish("homeassistant/sensor/esp32_gaszaehler_flow/config", cachedDiscoveryFlow.c_str(), true);
   delay(100);
 
   // 6. Brennwert (kWh/m³)
@@ -686,8 +695,6 @@ const char htmlPage[] PROGMEM = R"rawliteral(
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Gaszaehler Monitor</title>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns@3.0.0/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     :root {
@@ -1006,29 +1013,6 @@ const char htmlPage[] PROGMEM = R"rawliteral(
       border-left-color: var(--error-color);
       background: linear-gradient(135deg, rgba(239, 68, 68, 0.05) 0%, var(--status-bg) 100%);
     }
-    .chart-container {
-      height: 300px;
-      margin-top: 20px;
-      position: relative;
-      cursor: crosshair;
-    }
-    .chart {
-      width: 100%;
-      height: 100%;
-      touch-action: pan-x pinch-zoom;
-    }
-    .chart-tooltip {
-      position: absolute;
-      background: rgba(0,0,0,0.8);
-      color: white;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 0.85em;
-      pointer-events: none;
-      display: none;
-      z-index: 1000;
-      white-space: nowrap;
-    }
     .form-group {
       margin-bottom: 24px;
     }
@@ -1113,37 +1097,6 @@ const char htmlPage[] PROGMEM = R"rawliteral(
       background: rgba(239, 68, 68, 0.1);
       color: var(--error-color);
       border-color: var(--error-color);
-    }
-    
-    .chart-container {
-      height: 350px;
-      margin-top: 24px;
-      position: relative;
-      cursor: crosshair;
-      border-radius: 12px;
-      overflow: hidden;
-    }
-    
-    .chart {
-      width: 100%;
-      height: 100%;
-      touch-action: pan-x pinch-zoom;
-    }
-    
-    .chart-tooltip {
-      position: absolute;
-      background: rgba(15, 23, 42, 0.95);
-      backdrop-filter: blur(10px);
-      color: white;
-      padding: 10px 14px;
-      border-radius: 8px;
-      font-size: 0.9em;
-      pointer-events: none;
-      display: none;
-      z-index: 1000;
-      white-space: nowrap;
-      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-      border: 1px solid rgba(255,255,255,0.1);
     }
     
     .page {
@@ -1259,36 +1212,7 @@ const char htmlPage[] PROGMEM = R"rawliteral(
       </div>
 
       <div class="card">
-        <h2 style="margin-bottom: 20px;">📈 Verlauf & Statistik</h2>
-        
-        <!-- Verbrauchsstatistik -->
-        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px;">
-          <div style="background: linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(5, 150, 105, 0.1) 100%); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 10px; padding: 12px; text-align: center;">
-            <div style="color: var(--text-muted); font-size: 0.85em; margin-bottom: 4px;">📅 Heute</div>
-            <div style="color: #10b981; font-size: 1.3em; font-weight: bold;" id="statToday">-- m³</div>
-            <div style="color: var(--text-muted); font-size: 0.75em;" id="statTodayKwh">-- kWh</div>
-          </div>
-          <div style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(37, 99, 235, 0.1) 100%); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 10px; padding: 12px; text-align: center;">
-            <div style="color: var(--text-muted); font-size: 0.85em; margin-bottom: 4px;">📆 Diese Woche</div>
-            <div style="color: #3b82f6; font-size: 1.3em; font-weight: bold;" id="statWeek">-- m³</div>
-            <div style="color: var(--text-muted); font-size: 0.75em;" id="statWeekKwh">-- kWh</div>
-          </div>
-          <div style="background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(124, 58, 237, 0.1) 100%); border: 1px solid rgba(139, 92, 246, 0.3); border-radius: 10px; padding: 12px; text-align: center;">
-            <div style="color: var(--text-muted); font-size: 0.85em; margin-bottom: 4px;">📅 Dieser Monat</div>
-            <div style="color: #8b5cf6; font-size: 1.3em; font-weight: bold;" id="statMonth">-- m³</div>
-            <div style="color: var(--text-muted); font-size: 0.75em;" id="statMonthKwh">-- kWh</div>
-          </div>
-          <div style="background: linear-gradient(135deg, rgba(251, 191, 36, 0.1) 0%, rgba(245, 158, 11, 0.1) 100%); border: 1px solid rgba(251, 191, 36, 0.3); border-radius: 10px; padding: 12px; text-align: center;">
-            <div style="color: var(--text-muted); font-size: 0.85em; margin-bottom: 4px;">📊 Ø pro Tag</div>
-            <div style="color: #fbbf24; font-size: 1.3em; font-weight: bold;" id="statAvg">-- m³</div>
-            <div style="color: var(--text-muted); font-size: 0.75em;" id="statAvgKwh">-- kWh</div>
-          </div>
-        </div>
-        
-        <div class="chart-container" id="chartContainer">
-          <canvas id="chart" class="chart"></canvas>
-          <div id="chartTooltip" class="chart-tooltip"></div>
-        </div>
+        <h2 style="margin-bottom: 20px;">� Aktuelle Werte</h2>
       </div>
     </div>
 
@@ -1394,6 +1318,25 @@ const char htmlPage[] PROGMEM = R"rawliteral(
           
           <button type="submit" class="btn" style="width: 100%; padding: 16px; font-size: 1.05em; margin-top: 10px;">&#128190; Speichern & Neustart</button>
         </form>
+        
+        <div style="margin-top: 30px; padding-top: 30px; border-top: 2px solid var(--border-color);">
+          <h3 style="margin-bottom: 20px;">💾 Backup & Wiederherstellung</h3>
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+            <button onclick="exportConfig(false)" class="btn" style="padding: 14px; font-size: 1em; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+              📥 Config exportieren
+            </button>
+            <button onclick="exportConfig(true)" class="btn" style="padding: 14px; font-size: 1em; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);">
+              🔑 Export mit Passwörtern
+            </button>
+            <label class="btn" for="importFile" style="margin: 0; cursor: pointer; padding: 14px; font-size: 1em; text-align: center; background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);">
+              📤 Config importieren
+              <input type="file" id="importFile" accept=".json" onchange="importConfig(event)" style="display: none;">
+            </label>
+          </div>
+          <small style="color: var(--text-secondary); display: block; margin-top: 10px; line-height: 1.5;">
+            ⚠️ <strong>Hinweis:</strong> Export ohne Passwörter ist sicherer. Nach Import müssen Passwörter ggf. manuell eingetragen werden.
+          </small>
+        </div>
       </div>
     </div>
 
@@ -1475,7 +1418,6 @@ const char htmlPage[] PROGMEM = R"rawliteral(
           <button onclick="testMQTT()" class="btn" style="padding: 18px; font-size: 1em;">&#128228; MQTT Verbindung testen</button>
           <button onclick="testWiFi()" class="btn" style="padding: 18px; font-size: 1em;">&#128246; WiFi Signal prüfen</button>
           <button onclick="pingGateway()" class="btn" style="padding: 18px; font-size: 1em;">&#127759; Gateway Ping</button>
-          <button onclick="exportData()" class="btn" style="padding: 18px; font-size: 1em;">&#128190; Daten als CSV</button>
         </div>
         <div id="diagResult" style="margin-top: 24px; padding: 20px; background: var(--status-bg); border-radius: 12px; font-family: 'Consolas', 'Monaco', monospace; white-space: pre-wrap; display: none; border: 1px solid var(--border-color); line-height: 1.6;"></div>
       </div>
@@ -1505,13 +1447,6 @@ const char htmlPage[] PROGMEM = R"rawliteral(
         </div>
         <h3 style="margin-top: 20px;">Letzte M-Bus Rohdaten (Hex)</h3>
         <div id="mbusHexDump" style="background: var(--status-bg); border-radius: 8px; padding: 15px; font-family: monospace; font-size: 0.85em; word-break: break-all; color: var(--text-secondary);">Keine Daten vorhanden</div>
-      </div>
-
-      <div class="card">
-        <h2> Letzte erfolgreiche Messungen</h2>
-        <div id="lastMeasurements" style="max-height: 300px; overflow-y: auto;">
-          <div style="text-align: center; color: var(--text-muted); padding: 20px;">Lade Daten...</div>
-        </div>
       </div>
 
     </div>
@@ -1560,8 +1495,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
   <script>
     let currentPage = 'dashboard';
     let updateInterval = null;
-    let fullHistoryData = [];
-    let lastHistoryKey = '';
 
     // Dark Mode initialisieren
     function initDarkMode() {
@@ -1581,11 +1514,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       localStorage.setItem('darkMode', isDark ? 'true' : 'false');
       const themeBtn = document.getElementById('themeToggle');
       if (themeBtn) themeBtn.textContent = isDark ? '🌙' : '☀️';
-      
-      // Chart neu zeichnen für Theme-Anpassung
-      if (currentPage === 'dashboard' && fullHistoryData.length > 0) {
-        drawChart(fullHistoryData);
-      }
     }
 
     function togglePasswordVisibility(fieldId, buttonId) {
@@ -1619,22 +1547,6 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         }
         if (page === 'diagnostics') {
           refreshMBusData();
-          fetch('/api/data').then(r => r.json()).then(data => {
-            if (data.history && data.history.length > 0) {
-              let html = '<div style="display: grid; gap: 10px;">';
-              data.history.slice(-10).reverse().forEach(point => {
-                const date = new Date(point.timestamp * 1000);
-                const energy = (point.volume * data.calorific * data.correction).toFixed(3);
-                html += `<div style="padding: 10px; background: var(--status-bg); border-radius: 5px; display: flex; justify-content: space-between;">`;
-                html += `<span style="color: var(--text-secondary);">${date.toLocaleString('de-DE')}</span>`;
-                html += `<strong style="color: var(--text-primary);">${point.volume.toFixed(2)} m³ / ${energy} kWh</strong>`;
-                html += `</div>`;
-              });
-              html += '</div>';
-              const el = document.getElementById('lastMeasurements');
-              if (el) el.innerHTML = html;
-            }
-          });
         }
       }
     }
@@ -1821,26 +1733,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
             }
           }
           
-          if (data.history && data.history.length > 0) {
-            // Normalize timestamps: some stored timestamps may be in ms (old devices)
-            // JS expects seconds. Detect and convert if needed.
-            const nowMs = Date.now();
-            let hist = data.history.map(p => ({ timestamp: p.timestamp, volume: p.volume }));
-            const seemsMs = hist.some(p => p.timestamp > nowMs + 1000);
-            if (seemsMs) {
-              hist = hist.map(p => ({ timestamp: Math.floor(p.timestamp / 1000), volume: p.volume }));
-            }
-            fullHistoryData = hist;
-            updateConsumptionStats(hist, data.calorific, data.correction);
-
-            // Chart nur neu rendern, wenn sich die Historie wirklich geändert hat
-            const lastPoint = hist[hist.length - 1];
-            const historyKey = `${hist.length}:${lastPoint.timestamp}:${lastPoint.volume}`;
-            if (historyKey !== lastHistoryKey) {
-              drawChart(hist);
-              lastHistoryKey = historyKey;
-            }
-          }
+          // History-Funktionen entfernt - Home Assistant speichert Verlaufsdaten
         })
         .catch(e => {
           console.error('API Fehler beim Laden der Daten:', e);
@@ -1856,87 +1749,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         });
     }
 
-    function updateConsumptionStats(history, calorific, correction) {
-      const el = (id) => document.getElementById(id);
-      
-      if (!history || history.length < 2) {
-        ['statToday', 'statWeek', 'statMonth', 'statAvg'].forEach(id => {
-          if (el(id)) el(id).textContent = '-- m³';
-          if (el(id + 'Kwh')) el(id + 'Kwh').textContent = '-- kWh';
-        });
-        return;
-      }
-      
-      const now = Date.now() / 1000;
-      const latest = history[history.length - 1];
-      const oldest = history[0];
-      
-      // Start of today (00:00:00)
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      const todayTimestamp = startOfToday.getTime() / 1000;
-      
-      // Start of this week (Monday 00:00:00)
-      const startOfWeek = new Date();
-      const dayOfWeek = startOfWeek.getDay(); // 0 = Sonntag, 1 = Montag
-      const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-      startOfWeek.setDate(startOfWeek.getDate() - daysToMonday);
-      startOfWeek.setHours(0, 0, 0, 0);
-      const weekTimestamp = startOfWeek.getTime() / 1000;
-      
-      // Start of this month (1st day 00:00:00)
-      const startOfMonth = new Date();
-      startOfMonth.setDate(1);
-      startOfMonth.setHours(0, 0, 0, 0);
-      const monthTimestamp = startOfMonth.getTime() / 1000;
-      
-      // Finde den letzten Messwert VOR dem jeweiligen Zeitpunkt
-      let todayStart = null;
-      let weekStart = null;
-      let monthStart = null;
-      
-      // Suche rückwärts nach dem letzten Wert vor dem Zeitpunkt
-      for (let i = history.length - 1; i >= 0; i--) {
-        if (!todayStart && history[i].timestamp < todayTimestamp) {
-          todayStart = history[i];
-        }
-        if (!weekStart && history[i].timestamp < weekTimestamp) {
-          weekStart = history[i];
-        }
-        if (!monthStart && history[i].timestamp < monthTimestamp) {
-          monthStart = history[i];
-        }
-        if (todayStart && weekStart && monthStart) break;
-      }
-      
-      // Falls kein Wert vor dem Zeitpunkt existiert, nutze den ersten verfügbaren
-      if (!todayStart) todayStart = history[0];
-      if (!weekStart) weekStart = history[0];
-      if (!monthStart) monthStart = history[0];
-      
-      // Berechne Differenzen
-      const todayDiff = latest.volume - todayStart.volume;
-      const weekDiff = latest.volume - weekStart.volume;
-      const monthDiff = latest.volume - monthStart.volume;
-      
-      // Durchschnitt pro Tag über die gesamte Historie
-      const totalDiff = latest.volume - oldest.volume;
-      const daysSinceStart = (latest.timestamp - oldest.timestamp) / 86400;
-      const avgPerDay = daysSinceStart > 0 ? totalDiff / daysSinceStart : 0;
-      
-      // Anzeigen mit Null-Checks
-      if (el('statToday')) el('statToday').textContent = todayDiff.toFixed(2) + ' m³';
-      if (el('statTodayKwh')) el('statTodayKwh').textContent = (todayDiff * calorific * correction).toFixed(3) + ' kWh';
-      
-      if (el('statWeek')) el('statWeek').textContent = weekDiff.toFixed(2) + ' m³';
-      if (el('statWeekKwh')) el('statWeekKwh').textContent = (weekDiff * calorific * correction).toFixed(3) + ' kWh';
-      
-      if (el('statMonth')) el('statMonth').textContent = monthDiff.toFixed(2) + ' m³';
-      if (el('statMonthKwh')) el('statMonthKwh').textContent = (monthDiff * calorific * correction).toFixed(3) + ' kWh';
-      
-      if (el('statAvg')) el('statAvg').textContent = avgPerDay.toFixed(3) + ' m³';
-      if (el('statAvgKwh')) el('statAvgKwh').textContent = (avgPerDay * calorific * correction).toFixed(3) + ' kWh';
-    }
+    // Statistik-Funktion entfernt - Home Assistant speichert Verlaufsdaten
 
     function loadConfig() {
       fetch('/api/config')
@@ -2150,170 +1963,109 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       return m + 'm ' + (s % 60) + 's';
     }
 
-    let myChart = null;
+    // ==========================================
+    // CONFIG BACKUP & RESTORE FUNCTIONS
+    // ==========================================
     
-    function drawChart(history) {
-      if (!history || history.length === 0) {
-        const canvas = document.getElementById('chart');
-        const ctx = canvas.getContext('2d');
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        ctx.fillStyle = '#999';
-        ctx.font = '16px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.fillText('Keine Daten für diesen Zeitraum', canvas.width / 2, canvas.height / 2);
-        if (myChart) {
-          myChart.destroy();
-          myChart = null;
-        }
+    function exportConfig(includePasswords) {
+      const url = includePasswords ? '/api/config/export?passwords=true' : '/api/config/export';
+      
+      fetch(url)
+        .then(r => {
+          if (!r.ok) throw new Error('Export fehlgeschlagen');
+          return r.blob();
+        })
+        .then(blob => {
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          const timestamp = new Date().toISOString().split('T')[0];
+          a.download = `gas_config_${timestamp}${includePasswords ? '_with_passwords' : ''}.json`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(url);
+          
+          const msg = includePasswords ? 
+            '✅ Config mit Passwörtern exportiert!' : 
+            '✅ Config exportiert (ohne Passwörter)';
+          alert(msg);
+        })
+        .catch(e => {
+          alert('❌ Export fehlgeschlagen: ' + e);
+          console.error('Export Error:', e);
+        });
+    }
+    
+    function importConfig(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      
+      // Reset file input for re-selection
+      event.target.value = '';
+      
+      if (!file.name.endsWith('.json')) {
+        alert('❌ Bitte eine JSON-Datei auswählen!');
         return;
       }
       
-      if (history.length < 2) return;
-      
-      // Daten für Chart.js aufbereiten
-      const chartData = history.map(point => ({
-        x: point.timestamp * 1000, // Chart.js benötigt Millisekunden
-        y: point.volume
-      }));
-      
-      // Min/Max für x-Achse berechnen
-      const timestamps = chartData.map(d => d.x);
-      const minTime = Math.min(...timestamps);
-      const maxTime = Math.max(...timestamps);
-      
-      // Zeitachse-Einheit automatisch basierend auf Datenmenge
-      const daysDiff = (maxTime - minTime) / (1000 * 60 * 60 * 24);
-      let timeUnit = 'hour';
-      let displayFormats = {hour: 'HH:mm'};
-      let tooltipFormat = 'dd.MM HH:mm';
-      let stepSize = undefined;
-      let maxTicksLimit = undefined;
-      
-      if (daysDiff > 180) {
-        timeUnit = 'month';
-        displayFormats = {month: 'MMM yyyy'};
-        tooltipFormat = 'MMM yyyy';
-        maxTicksLimit = 20;
-      } else if (daysDiff > 60) {
-        timeUnit = 'week';
-        displayFormats = {week: 'dd.MM'};
-        tooltipFormat = 'dd.MM.yyyy';
-        maxTicksLimit = 20;
-      } else if (daysDiff > 14) {
-        timeUnit = 'day';
-        displayFormats = {day: 'dd.MM'};
-        tooltipFormat = 'dd.MM.yyyy';
-        maxTicksLimit = 30;
-      } else if (daysDiff > 2) {
-        timeUnit = 'hour';
-        displayFormats = {hour: 'dd.MM HH:mm'};
-        tooltipFormat = 'dd.MM HH:mm';
-        maxTicksLimit = 25;
-      } else {
-        timeUnit = 'hour';
-        displayFormats = {hour: 'HH:mm'};
-        tooltipFormat = 'dd.MM HH:mm';
-        maxTicksLimit = 48;
+      if (!confirm('⚠️ WARNUNG: Config wird überschrieben und ESP32 neu gestartet!\\n\\nFortfahren?')) {
+        return;
       }
       
-      // Altes Chart zerstören
-      if (myChart) {
-        myChart.destroy();
-      }
-      
-      const ctx = document.getElementById('chart').getContext('2d');
-      myChart = new Chart(ctx, {
-        type: 'line',
-        data: {
-          datasets: [{
-            label: 'Gasverbrauch (m³)',
-            data: chartData,
-            borderColor: '#667eea',
-            backgroundColor: 'rgba(102, 126, 234, 0.1)',
-            borderWidth: 3,
-            pointRadius: 4,
-            pointHoverRadius: 6,
-            pointBackgroundColor: '#667eea',
-            pointBorderColor: '#fff',
-            pointBorderWidth: 2,
-            tension: 0.4,
-            fill: true
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          interaction: {
-            mode: 'nearest',
-            axis: 'x',
-            intersect: false
-          },
-          plugins: {
-            legend: {
-              display: true,
-              labels: {
-                color: '#666',
-                font: {size: 14}
-              }
-            },
-            tooltip: {
-              callbacks: {
-                title: function(context) {
-                  const date = new Date(context[0].parsed.x);
-                  return date.toLocaleString('de-DE', {
-                    day: '2-digit',
-                    month: '2-digit',
-                    year: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit'
-                  });
-                },
-                label: function(context) {
-                  return ' ' + context.parsed.y.toFixed(2) + ' m³';
-                }
-              }
-            }
-          },
-          scales: {
-            x: {
-              type: 'time',
-              time: {
-                unit: timeUnit,
-                displayFormats: displayFormats,
-                tooltipFormat: tooltipFormat,
-                stepSize: stepSize
-              },
-              min: minTime,
-              max: maxTime,
-              grid: {
-                color: 'rgba(0, 0, 0, 0.05)'
-              },
-              ticks: {
-                color: '#666',
-                maxRotation: 45,
-                minRotation: 0,
-                autoSkip: true,
-                maxTicksLimit: maxTicksLimit
-              }
-            },
-            y: {
-              beginAtZero: false,
-              grid: {
-                color: 'rgba(0, 0, 0, 0.05)'
-              },
-              ticks: {
-                color: '#666',
-                callback: function(value) {
-                  return value.toFixed(2) + ' m³';
-                }
-              }
-            }
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const jsonData = e.target.result;
+        
+        // Try to parse and preview
+        try {
+          const config = JSON.parse(jsonData);
+          let preview = '📋 Vorschau der neuen Config:\\n\\n';
+          preview += `WiFi SSID: ${config.wifi?.ssid || 'N/A'}\\n`;
+          preview += `MQTT Server: ${config.mqtt?.server || 'N/A'}:${config.mqtt?.port || 'N/A'}\\n`;
+          preview += `MQTT Topic: ${config.mqtt?.topic || 'N/A'}\\n`;
+          preview += `Poll-Intervall: ${config.gas?.poll_interval_seconds || 'N/A'}s\\n`;
+          preview += '\\n⚠️ ESP32 wird nach Import neu gestartet!\\n\\nJetzt importieren?';
+          
+          if (!confirm(preview)) {
+            return;
           }
+        } catch (err) {
+          alert('❌ Ungültige JSON-Datei: ' + err.message);
+          return;
         }
-      });
+        
+        // Send to server
+        fetch('/api/config/import', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: jsonData
+        })
+        .then(r => r.json())
+        .then(data => {
+          if (data.success) {
+            alert('✅ Config erfolgreich importiert!\\n\\nESP32 wird neu gestartet...');
+            // Page will reload after restart
+          } else {
+            alert('❌ Import fehlgeschlagen:\\n\\n' + (data.error || 'Unbekannter Fehler'));
+          }
+        })
+        .catch(e => {
+          alert('❌ Import fehlgeschlagen: ' + e);
+          console.error('Import Error:', e);
+        });
+      };
+      
+      reader.onerror = () => {
+        alert('❌ Fehler beim Lesen der Datei!');
+      };
+      
+      reader.readAsText(file);
     }
-    
-    // Chart.js kümmert sich um Tooltips
+
+    // ==========================================
+    // DIAGNOSTIC FUNCTIONS
+    // ==========================================
 
     // Diagnose-Funktionen
     function testMQTT() {
@@ -2440,40 +2192,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
       }
     }
 
-    function exportData() {
-      fetch('/api/data')
-        .then(r => r.json())
-        .then(data => {
-          if (!data.history || data.history.length === 0) {
-            alert('Keine Daten zum Exportieren vorhanden!');
-            return;
-          }
-          
-          let csv = 'Timestamp,Unix Time,Volume (m),Energy (kWh)\n';
-          data.history.forEach(point => {
-            const date = new Date(point.timestamp * 1000);
-            const dateStr = date.toISOString();
-            const energy = (point.volume * data.calorific * data.correction).toFixed(1);
-            csv += `${dateStr},${point.timestamp},${point.volume.toFixed(2)},${energy}\n`;
-          });
-          
-          const blob = new Blob([csv], { type: 'text/csv' });
-          const url = window.URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = 'gaszaehler_export_' + new Date().toISOString().split('T')[0] + '.csv';
-          a.click();
-          window.URL.revokeObjectURL(url);
-          
-          const result = document.getElementById('diagResult');
-          result.style.display = 'block';
-          result.textContent = ` CSV Export erfolgreich!\n\n${data.history.length} Datenpunkte exportiert\nDatei: ${a.download}`;
-          result.style.color = '#28a745';
-        })
-        .catch(e => {
-          alert('Export fehlgeschlagen: ' + e);
-        });
-    }
+    // Export-Funktion entfernt - Home Assistant speichert Verlaufsdaten
 
     // Dark Mode initialisieren
     initDarkMode();
@@ -2485,12 +2204,12 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
 </html>
 )rawliteral";
 
-void handleRoot() {
+void handleRoot(AsyncWebServerRequest *request) {
   // Große HTML-Seite direkt aus Flash/PROGMEM ausliefern
-  server.send_P(200, "text/html", htmlPage);
+  request->send_P(200, "text/html", htmlPage);
 }
 
-void handleAPI() {
+void handleAPI(AsyncWebServerRequest *request) {
   String json = "{";
   json += "\"volume\":" + String(lastVolume, 2) + ",";
   json += "\"flow_m3h\":" + String(lastFlowM3h, 4) + ",";
@@ -2501,7 +2220,7 @@ void handleAPI() {
   json += "\"apSSID\":\"" + String(ap_ssid) + "\",";
   json += "\"ipAddress\":\"" + (apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString()) + "\",";
   json += "\"uptime\":" + String(millis()) + ",";
-  json += "\"lastUpdate\":" + String(measurements.empty() ? 0 : measurements.back().timestamp) + ",";
+  json += "\"lastUpdate\":0,";
   json += "\"timeInitialized\":" + String(timeInitialized ? "true" : "false") + ",";
   json += "\"pollInterval\":" + String(poll_interval / 1000) + ",";
   // backward-compatible key expected by the WebUI
@@ -2525,18 +2244,11 @@ void handleAPI() {
   json += "\"wifiDisconnects\":" + String(errorStats.wifiDisconnects) + ",";
   json += "\"lastError\":\"" + String(errorStats.lastErrorMsg) + "\",";
   json += "\"lastErrorTime\":" + String(errorStats.lastError);
-  json += "},";
-  json += "\"history\":[";
-  for (size_t i = 0; i < measurements.size(); i++) {
-    if (i > 0) json += ",";
-    json += "{\"timestamp\":" + String(measurements[i].timestamp) + 
-            ",\"volume\":" + String(measurements[i].volume, 2) + "}";
-  }
-  json += "]}";
-  server.send(200, "application/json", json);
+  json += "}}";
+  request->send(200, "application/json", json);
 }
 
-void handleConfigGet() {
+void handleConfigGet(AsyncWebServerRequest *request) {
   String json = "{";
   json += "\"ssid\":\"" + String(ssid) + "\",";
   json += "\"password\":\"" + String(password) + "\",";
@@ -2555,10 +2267,10 @@ void handleConfigGet() {
   json += "\"static_subnet\":\"" + String(static_subnet) + "\",";
   json += "\"static_dns\":\"" + String(static_dns) + "\"";
   json += "}";
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
 }
 
-void handleLogs() {
+void handleLogs(AsyncWebServerRequest *request) {
   String json = "{";
   json += "\"uptime\":" + String(millis()) + ",";
   json += "\"logs\":[";
@@ -2570,20 +2282,20 @@ void handleLogs() {
     json += "}";
   }
   json += "]}";
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
 }
 
-void handleDiagnostics() {
+void handleDiagnostics(AsyncWebServerRequest *request) {
   String json = "{\"mbus\":{";
   json += "\"total\":" + String(mbusStats.totalPolls) + ",";
   json += "\"successful\":" + String(mbusStats.successfulPolls) + ",";
   json += "\"avgResponseTime\":" + String(mbusStats.avgResponseTime) + ",";
   json += "\"lastResponseTime\":" + String(mbusStats.lastResponseTime);
   json += "}}";
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
 }
 
-void handleWifiScan() {
+void handleWifiScan(AsyncWebServerRequest *request) {
   Serial.println("WiFi-Scan gestartet...");
   int n = WiFi.scanNetworks();
   
@@ -2599,12 +2311,12 @@ void handleWifiScan() {
   json += "]}";
   
   WiFi.scanDelete();
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
   Serial.println("WiFi-Scan abgeschlossen: " + String(n) + " Netzwerke gefunden");
 }
 
 // Diagnose-Endpunkte
-void handleTestMQTT() {
+void handleTestMQTT(AsyncWebServerRequest *request) {
   unsigned long start = millis();
   bool connected = client.connected();
   unsigned long responseTime = millis() - start;
@@ -2616,10 +2328,10 @@ void handleTestMQTT() {
   json += "\"availability_topic\":\"" + String(mqtt_availability_topic) + "\",";
   json += "\"response_time\":" + String(responseTime);
   json += "}";
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
 }
 
-void handleTestWiFi() {
+void handleTestWiFi(AsyncWebServerRequest *request) {
   String json = "{";
   json += "\"ssid\":\"" + WiFi.SSID() + "\",";
   json += "\"rssi\":" + String(WiFi.RSSI()) + ",";
@@ -2628,10 +2340,10 @@ void handleTestWiFi() {
   json += "\"mac\":\"" + WiFi.macAddress() + "\",";
   json += "\"hostname\":\"" + String(hostname) + "\"";
   json += "}";
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
 }
 
-void handleTestPing() {
+void handleTestPing(AsyncWebServerRequest *request) {
   IPAddress gateway = WiFi.gatewayIP();
   bool reachable = Ping.ping(gateway, 1);
   
@@ -2641,10 +2353,10 @@ void handleTestPing() {
   json += "\"response_time\":\"" + String(reachable ? "<10ms" : "timeout") + "\",";
   json += "\"dns\":\"" + WiFi.dnsIP().toString() + "\"";
   json += "}";
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
 }
 
-void handleMBusStats() {
+void handleMBusStats(AsyncWebServerRequest *request) {
   String json = "{";
   json += "\"total\":" + String(mbusStats.totalPolls) + ",";
   json += "\"successful\":" + String(mbusStats.successfulPolls) + ",";
@@ -2652,10 +2364,10 @@ void handleMBusStats() {
   json += "\"last_response\":" + String(mbusStats.lastResponseTime) + ",";
   json += "\"hex_dump\":\"" + mbusStats.lastHexDump + "\"";
   json += "}";
-  server.send(200, "application/json", json);
+  request->send(200, "application/json", json);
 }
 
-void handleMBusTrigger() {
+void handleMBusTrigger(AsyncWebServerRequest *request) {
   // Manuelle M-Bus Abfrage starten
   if (mbusState == MBUS_IDLE) {
     // Poll Frame senden
@@ -2667,13 +2379,13 @@ void handleMBusTrigger() {
     mbusState = MBUS_WAIT_RESPONSE;
     
     Serial.println(ANSI_YELLOW "M-Bus: Manuelle Abfrage gestartet" ANSI_RESET);
-    server.send(200, "application/json", "{\"status\":\"triggered\",\"message\":\"M-Bus Abfrage gestartet\"}");
+    request->send(200, "application/json", "{\"status\":\"triggered\",\"message\":\"M-Bus Abfrage gestartet\"}");
   } else {
-    server.send(409, "application/json", "{\"status\":\"busy\",\"message\":\"M-Bus Abfrage läuft bereits\"}");
+    request->send(409, "application/json", "{\"status\":\"busy\",\"message\":\"M-Bus Abfrage läuft bereits\"}");
   }
 }
 
-void handleErrorReset() {
+void handleErrorReset(AsyncWebServerRequest *request) {
   // Fehlerstatistik zurücksetzen
   errorStats.mbusTimeouts = 0;
   errorStats.mbusParseErrors = 0;
@@ -2682,8 +2394,92 @@ void handleErrorReset() {
   lastErrorMessage = "";
   
   Serial.println("Fehlerstatistik zurückgesetzt");
-  server.send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Fehlerstatistik zurückgesetzt\"}");
+  request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Fehlerstatistik zurückgesetzt\"}");
 }
+
+// ==========================================
+// CONFIG BACKUP & RESTORE HANDLERS
+// ==========================================
+
+void handleConfigExport(AsyncWebServerRequest *request) {
+  DEBUG_LOG("handleConfigExport() aufgerufen");
+  
+  // Check if passwords should be included (query parameter)
+  bool includePasswords = request->hasParam("passwords") && request->getParam("passwords")->value() == "true";
+  
+  String json = Config::exportToJson(includePasswords);
+  
+  // Set headers for file download
+  String filename = "gas_config_";
+  filename += String(millis() / 1000);
+  filename += ".json";
+  
+  AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
+  response->addHeader("Content-Disposition", "attachment; filename=\"" + filename + "\"");
+  request->send(response);
+  
+  Serial.println("✅ Config exportiert: " + filename);
+  Logger::addLog("Config exportiert (" + String(json.length()) + " bytes)");
+}
+
+void handleConfigImport(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  // AsyncWebServer body handler - data wird in Chunks geliefert
+  static String bodyBuffer;
+  
+  // Ersten Chunk: Buffer initialisieren
+  if (index == 0) {
+    bodyBuffer = "";
+    bodyBuffer.reserve(total);
+  }
+  
+  // Chunk zum Buffer hinzufügen
+  for (size_t i = 0; i < len; i++) {
+    bodyBuffer += (char)data[i];
+  }
+  
+  // Letzter Chunk: Verarbeitung
+  if (index + len == total) {
+    DEBUG_LOG("handleConfigImport() - Body komplett empfangen: " + String(total) + " bytes");
+    
+    String errorMsg;
+    
+    // Validate JSON first
+    if (!Config::validateJson(bodyBuffer, &errorMsg)) {
+      String response = "{\"success\":false,\"error\":\"" + errorMsg + "\"}";
+      request->send(400, "application/json", response);
+      Serial.println("❌ Config Import fehlgeschlagen: " + errorMsg);
+      bodyBuffer = "";
+      return;
+    }
+    
+    // Import configuration
+    if (!Config::importFromJson(bodyBuffer, &errorMsg)) {
+      String response = "{\"success\":false,\"error\":\"" + errorMsg + "\"}";
+      request->send(500, "application/json", response);
+      Serial.println("❌ Config Import fehlgeschlagen: " + errorMsg);
+      bodyBuffer = "";
+      return;
+    }
+    
+    // Save imported config to NVS
+    Config::save();
+    
+    request->send(200, "application/json", "{\"success\":true,\"message\":\"Config imported successfully. Restarting...\"}");
+    
+    Serial.println("✅ Config erfolgreich importiert und gespeichert");
+    Logger::addLog("Config importiert - Restart...");
+    
+    bodyBuffer = "";
+    
+    // Restart ESP32 to apply new configuration
+    delay(1000);
+    ESP.restart();
+  }
+}
+
+// ==========================================
+// JSON HELPER FUNCTIONS (for legacy handleConfigPost)
+// ==========================================
 
 
 static bool jsonExtractString(const String& body, const char* key, String& out) {
@@ -2726,76 +2522,96 @@ static bool jsonExtractBool(const String& body, const char* key, bool& out) {
   return false;
 }
 
-void handleConfigPost() {
-  Serial.println("DEBUG: handleConfigPost() aufgerufen");
-  Serial.println("DEBUG: hasArg('plain') = " + String(server.hasArg("plain") ? "true" : "false"));
-  Serial.println("DEBUG: args() = " + String(server.args()));
-
-  if (!server.hasArg("plain")) {
-    server.send(400, "application/json", "{\"error\":\"invalid request\"}");
-    return;
+void handleConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+  // AsyncWebServer body handler - data wird in Chunks geliefert
+  static String bodyBuffer;
+  
+  // Ersten Chunk: Buffer initialisieren
+  if (index == 0) {
+    bodyBuffer = "";
+    bodyBuffer.reserve(total);
+    DEBUG_LOG("handleConfigPost() aufgerufen - erwarte " + String(total) + " bytes");
   }
-
-  String body = server.arg("plain");
-  Serial.println("DEBUG: Body length = " + String(body.length()));
-  String tb = body;
-  if (tb.length() > 300) tb = tb.substring(0, 300) + "...";
-  Serial.println("DEBUG POST /api/config body: " + tb);
-
-  String strVal;
-  String numVal;
-  bool boolVal;
-
-  if (jsonExtractString(body, "ssid", strVal)) strVal.toCharArray(ssid, sizeof(ssid));
-  if (jsonExtractString(body, "password", strVal)) strVal.toCharArray(password, sizeof(password));
-  if (jsonExtractString(body, "hostname", strVal)) strVal.toCharArray(hostname, sizeof(hostname));
-  if (jsonExtractString(body, "mqtt_server", strVal)) strVal.toCharArray(mqtt_server, sizeof(mqtt_server));
-  if (jsonExtractString(body, "mqtt_user", strVal)) strVal.toCharArray(mqtt_user, sizeof(mqtt_user));
-  if (jsonExtractString(body, "mqtt_pass", strVal)) strVal.toCharArray(mqtt_pass, sizeof(mqtt_pass));
-  if (jsonExtractString(body, "mqtt_topic", strVal)) strVal.toCharArray(mqtt_topic, sizeof(mqtt_topic));
-  if (jsonExtractString(body, "static_ip", strVal)) strVal.toCharArray(static_ip, sizeof(static_ip));
-  if (jsonExtractString(body, "static_gateway", strVal)) strVal.toCharArray(static_gateway, sizeof(static_gateway));
-  if (jsonExtractString(body, "static_subnet", strVal)) strVal.toCharArray(static_subnet, sizeof(static_subnet));
-  if (jsonExtractString(body, "static_dns", strVal)) strVal.toCharArray(static_dns, sizeof(static_dns));
-
-  if (jsonExtractNumber(body, "mqtt_port", numVal)) {
-    int port = numVal.toInt();
-    if (port > 0 && port <= 65535) mqtt_port = port;
+  
+  // Chunk zum Buffer hinzufügen
+  for (size_t i = 0; i < len; i++) {
+    bodyBuffer += (char)data[i];
   }
+  
+  // Letzter Chunk: Verarbeitung
+  if (index + len == total) {
+    DEBUG_LOG("Body length = " + String(total));
+    String tb = bodyBuffer;
+    if (tb.length() > 300) tb = tb.substring(0, 300) + "...";
+    DEBUG_LOG("POST /api/config body: " + tb);
 
-  if (jsonExtractNumber(body, "poll_interval", numVal)) {
-    int seconds = numVal.toInt();
-    if (seconds >= 10 && seconds <= 300) {
-      poll_interval = (unsigned long)seconds * 1000UL;
-      if (poll_interval < 10000UL) poll_interval = 10000UL;
-      if (poll_interval > 300000UL) poll_interval = 300000UL;
+    String strVal;
+    String numVal;
+    bool boolVal;
 
-      preferences.begin("gas-config", false);
-      size_t written = preferences.putULong("poll_interval", poll_interval);
-      unsigned long rb = preferences.getULong("poll_interval", 0);
-      preferences.end();
-      Serial.println("DEBUG: poll_interval in Flash geschrieben: " + String(poll_interval) + " ms (written=" + String(written) + " readback=" + String(rb) + ")");
-    } else {
-      Serial.println("DEBUG: poll_interval ungültig ('" + numVal + "'), beibehalten: " + String(poll_interval) + " ms");
+    if (jsonExtractString(bodyBuffer, "ssid", strVal)) strVal.toCharArray(ssid, sizeof(ssid));
+    if (jsonExtractString(bodyBuffer, "password", strVal)) strVal.toCharArray(password, sizeof(password));
+    if (jsonExtractString(bodyBuffer, "hostname", strVal)) strVal.toCharArray(hostname, sizeof(hostname));
+    if (jsonExtractString(bodyBuffer, "mqtt_server", strVal)) strVal.toCharArray(mqtt_server, sizeof(mqtt_server));
+    if (jsonExtractString(bodyBuffer, "mqtt_user", strVal)) strVal.toCharArray(mqtt_user, sizeof(mqtt_user));
+    if (jsonExtractString(bodyBuffer, "mqtt_pass", strVal)) strVal.toCharArray(mqtt_pass, sizeof(mqtt_pass));
+    if (jsonExtractString(bodyBuffer, "mqtt_topic", strVal)) strVal.toCharArray(mqtt_topic, sizeof(mqtt_topic));
+    if (jsonExtractString(bodyBuffer, "static_ip", strVal)) strVal.toCharArray(static_ip, sizeof(static_ip));
+    if (jsonExtractString(bodyBuffer, "static_gateway", strVal)) strVal.toCharArray(static_gateway, sizeof(static_gateway));
+    if (jsonExtractString(bodyBuffer, "static_subnet", strVal)) strVal.toCharArray(static_subnet, sizeof(static_subnet));
+    if (jsonExtractString(bodyBuffer, "static_dns", strVal)) strVal.toCharArray(static_dns, sizeof(static_dns));
+
+    if (jsonExtractNumber(bodyBuffer, "mqtt_port", numVal)) {
+      int port = numVal.toInt();
+      if (port > 0 && port <= 65535) mqtt_port = port;
     }
-  }
 
-  if (jsonExtractNumber(body, "gas_calorific", numVal)) {
-    float v = numVal.toFloat();
-    gas_calorific_value = (v >= 8.0 && v <= 13.0) ? v : 10.0;
-  }
+    if (jsonExtractNumber(bodyBuffer, "poll_interval", numVal)) {
+      int seconds = numVal.toInt();
+      if (seconds >= 10 && seconds <= 300) {
+        poll_interval = (unsigned long)seconds * 1000UL;
+        if (poll_interval < MIN_POLL_INTERVAL) poll_interval = MIN_POLL_INTERVAL;
+        if (poll_interval > MAX_POLL_INTERVAL) poll_interval = MAX_POLL_INTERVAL;
 
-  if (jsonExtractNumber(body, "gas_correction", numVal)) {
-    float v = numVal.toFloat();
-    gas_correction_factor = (v >= 0.90 && v <= 1.10) ? v : 1.0;
-  }
+        preferences.begin("gas-config", false);
+        size_t written = preferences.putULong("poll_interval", poll_interval);
+        unsigned long rb = preferences.getULong("poll_interval", 0);
+        preferences.end();
+        DEBUG_LOG("poll_interval in Flash geschrieben: " + String(poll_interval) + " ms (written=" + String(written) + " readback=" + String(rb) + ")");
+      } else {
+        DEBUG_LOG("poll_interval ungültig ('" + numVal + "'), beibehalten: " + String(poll_interval) + " ms");
+      }
+    }
 
-  if (jsonExtractBool(body, "use_static_ip", boolVal)) {
-    use_static_ip = boolVal;
-  }
+    if (jsonExtractNumber(bodyBuffer, "gas_calorific", numVal)) {
+      float v = numVal.toFloat();
+      gas_calorific_value = (v >= 8.0 && v <= 13.0) ? v : 10.0;
+    }
 
-  saveConfig();
-  server.send(200, "application/json", "{\"status\":\"ok\"}");
+    if (jsonExtractNumber(bodyBuffer, "gas_correction", numVal)) {
+      float v = numVal.toFloat();
+      gas_correction_factor = (v >= 0.90 && v <= 1.10) ? v : 1.0;
+    }
+
+    if (jsonExtractBool(bodyBuffer, "use_static_ip", boolVal)) {
+      use_static_ip = boolVal;
+    }
+
+    saveConfig();
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+    
+    bodyBuffer = "";
+
+    Serial.println("Konfiguration gespeichert.");
+    if (apMode) {
+      Serial.println("Wechsel zu Station-Modus in 3 Sekunden...");
+    } else {
+      Serial.println("Neustart in 3 Sekunden...");
+    }
+    delay(3000);
+    ESP.restart();
+  }
+}
 
   Serial.println("Konfiguration gespeichert.");
   if (apMode) {
@@ -2807,19 +2623,173 @@ void handleConfigPost() {
   ESP.restart();
 }
 
+// ---- Neue API Endpoints ----
+
+// Factory Reset
+void handleFactoryReset(AsyncWebServerRequest *request) {
+  // Rate Limiting Check
+  if (!checkRateLimit(request->client()->remoteIP())) {
+    request->send(429, "application/json", "{\"error\":\"Too many requests\"}");
+    return;
+  }
+  
+  Logger::warn("Factory Reset ausgelöst via WebUI");
+  
+  preferences.begin("gas-config", false);
+  preferences.clear();
+  preferences.end();
+  
+  request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Factory Reset - Neustart...\"}");
+  delay(1000);
+  ESP.restart();
+}
+
+// CPU Temperatur
+void handleCpuTemp(AsyncWebServerRequest *request) {
+  float temp = (temperatureRead() - 32.0) / 1.8; // Fahrenheit zu Celsius
+  String json = "{\"temperature\":" + String(temp, 1) + ",\"unit\":\"°C\"}";
+  request->send(200, "application/json", json);
+}
+
+// Health Dashboard
+void handleHealth(AsyncWebServerRequest *request) {
+  const char* bootReasons[] = {
+    "UNKNOWN", "POWERON", "EXT", "SW", "PANIC", "INT_WDT", 
+    "TASK_WDT", "WDT", "DEEPSLEEP", "BROWNOUT", "SDIO"
+  };
+  
+  float cpuTemp = (temperatureRead() - 32.0) / 1.8;
+  float heapFragmentation = 100.0 - (ESP.getMaxAllocHeap() * 100.0 / ESP.getFreeHeap());
+  
+  String json = "{";
+  json += "\"uptime\":" + String((millis() - healthStats.bootTime) / 1000) + ",";
+  json += "\"bootReason\":\"" + String(bootReasons[healthStats.bootReason]) + "\",";
+  json += "\"cpuTemp\":" + String(cpuTemp, 1) + ",";
+  json += "\"freeHeap\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"minHeapFree\":" + String(healthStats.minHeapFree) + ",";
+  json += "\"heapFragmentation\":" + String(heapFragmentation, 1) + ",";
+  json += "\"wifiReconnects\":" + String(healthStats.wifiReconnects) + ",";
+  json += "\"mqttReconnects\":" + String(healthStats.mqttReconnects) + ",";
+  json += "\"mbusErrors\":" + String(healthStats.mbusErrors) + "";
+  json += "}";
+  
+  request->send(200, "application/json", json);
+}
+
+// Log-Level setzen/abrufen
+void handleLogLevel(AsyncWebServerRequest *request) {
+  if (request->method() == HTTP_GET) {
+    String json = "{\"level\":" + String(Logger::getLogLevel()) + ",";
+    json += "\"levelName\":\"" + String(Logger::levelToString(Logger::getLogLevel())) + "\"}";
+    request->send(200, "application/json", json);
+  } else if (request->method() == HTTP_POST) {
+    if (request->hasParam("level", true)) {
+      int level = request->getParam("level", true)->value().toInt();
+      if (level >= 0 && level <= 3) {
+        Logger::setLogLevel((LogLevel)level);
+        Logger::info("Log-Level geändert: " + String(Logger::levelToString((LogLevel)level)));
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        request->send(400, "application/json", "{\"error\":\"Invalid level (0-3)\"}");
+      }
+    } else {
+      request->send(400, "application/json", "{\"error\":\"Missing level parameter\"}");
+    }
+  }
+}
+
+// PWA Manifest
+void handleManifest(AsyncWebServerRequest *request) {
+  request->send(200, "application/json", R"({
+  "name": "Gaszähler Monitor",
+  "short_name": "Gas Monitor",
+  "description": "ESP32 M-Bus Gateway für Gaszähler",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e293b",
+  "theme_color": "#4f46e5",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='45' fill='%234f46e5'/><text x='50' y='70' font-size='60' text-anchor='middle' fill='white'>⚡</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+})");
+}
+
+// Service Worker
+void handleServiceWorker(AsyncWebServerRequest *request) {
+  request->send(200, "application/javascript", R"(
+const CACHE_NAME = 'gas-monitor-v2.1';
+self.addEventListener('install', e => {
+  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(['/'])));
+  self.skipWaiting();
+});
+self.addEventListener('fetch', e => {
+  e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+});
+)");
+}
+
+// Kosten berechnen
+void handleCostCalculation(AsyncWebServerRequest *request) {
+  float volume = lastVolume;
+  float energy_kwh = volume * Config::gas_calorific_value * Config::gas_correction_factor;
+  
+  // Kosten = Arbeitspreis * kWh + Grundpreis (anteilig)
+  float costWork = energy_kwh * Config::gas_work_price_per_kwh;
+  float costBase = Config::gas_base_price_monthly / 30.0; // Pro Tag
+  
+  // Hochrechnung auf Monat/Jahr basierend auf aktuellem Durchfluss
+  float dailyCost = costWork + costBase;
+  float monthlyCost = dailyCost * 30.0;
+  float yearlyCost = dailyCost * 365.0;
+  
+  String json = "{";
+  json += "\"volume\":" + String(volume, 2) + ",";
+  json += "\"energy_kwh\":" + String(energy_kwh, 2) + ",";
+  json += "\"cost_work\":" + String(costWork, 2) + ",";
+  json += "\"cost_base_daily\":" + String(costBase, 2) + ",";
+  json += "\"cost_total_today\":" + String(dailyCost, 2) + ",";
+  json += "\"cost_monthly\":" + String(monthlyCost, 2) + ",";
+  json += "\"cost_yearly\":" + String(yearlyCost, 2) + ",";
+  json += "\"base_price_monthly\":" + String(Config::gas_base_price_monthly, 2) + ",";
+  json += "\"work_price_kwh\":" + String(Config::gas_work_price_per_kwh, 4) + "";
+  json += "}";
+  
+  request->send(200, "application/json", json);
+}
+
 void setupWebServer() {
   Serial.println("\n=== WebServer Setup Start ===");
   
-  // Routen registrieren
+  // ========== NEUE Features (v2.1.0) ==========
+  server.on("/manifest.json", HTTP_GET, handleManifest);
+  server.on("/sw.js", HTTP_GET, handleServiceWorker);
+  server.on("/api/health", HTTP_GET, handleHealth);
+  server.on("/api/cpu-temp", HTTP_GET, handleCpuTemp);
+  server.on("/api/costs", HTTP_GET, handleCostCalculation);
+  server.on("/api/factory-reset", HTTP_POST, handleFactoryReset);
+  server.on("/api/log-level", HTTP_GET, handleLogLevel);
+  server.on("/api/log-level", HTTP_POST, handleLogLevel);
+  
+  // ========== Core Routes ==========
   server.on("/", HTTP_GET, handleRoot);
   server.on("/api/data", HTTP_GET, handleAPI);
   server.on("/api/config", HTTP_GET, handleConfigGet);
-  server.on("/api/config", HTTP_POST, handleConfigPost);
   server.on("/api/wifi/scan", HTTP_GET, handleWifiScan);
   server.on("/api/logs", HTTP_GET, handleLogs);
   server.on("/api/diagnostics", HTTP_GET, handleDiagnostics);
   
-  // Diagnose-Endpunkte
+  // POST with body handler - Config speichern
+  server.on("/api/config", HTTP_POST, 
+    [](AsyncWebServerRequest *request) { /* Response wird in Body-Handler gesendet */ },
+    NULL,
+    handleConfigPost
+  );
+  
+  // ========== Diagnose-Endpunkte ==========
   server.on("/api/test/mqtt", HTTP_GET, handleTestMQTT);
   server.on("/api/test/wifi", HTTP_GET, handleTestWiFi);
   server.on("/api/test/ping", HTTP_GET, handleTestPing);
@@ -2827,19 +2797,44 @@ void setupWebServer() {
   server.on("/api/mbus/trigger", HTTP_POST, handleMBusTrigger);
   server.on("/api/errors/reset", HTTP_POST, handleErrorReset);
   
-  // OTA Update über ArduinoOTA (Port 3232) - siehe ArduinoOTA.begin() in setup()
-  // WebUI zeigt Anleitung für PlatformIO OTA Upload
+  // ========== Config Backup & Restore ==========
+  server.on("/api/config/export", HTTP_GET, handleConfigExport);
+  
+  // POST with body handler - Config Import
+  server.on("/api/config/import", HTTP_POST,
+    [](AsyncWebServerRequest *request) { /* Response wird in Body-Handler gesendet */ },
+    NULL,
+    handleConfigImport
+  );
   
   // Server starten auf Port 80
   server.begin();
   
   Serial.println("WebServer Routen registriert:");
-  Serial.println("  GET  /");
+  Serial.println("  GET  / (Root HTML)");
   Serial.println("  GET  /api/data");
   Serial.println("  GET  /api/config");
   Serial.println("  POST /api/config");
   Serial.println("  GET  /api/wifi/scan");
   Serial.println("  GET  /api/logs");
+  Serial.println("  GET  /api/diagnostics");
+  Serial.println("  GET  /api/test/mqtt");
+  Serial.println("  GET  /api/test/wifi");
+  Serial.println("  GET  /api/test/ping");
+  Serial.println("  GET  /api/mbus/stats");
+  Serial.println("  POST /api/mbus/trigger");
+  Serial.println("  POST /api/errors/reset");
+  Serial.println("  GET  /api/config/export");
+  Serial.println("  POST /api/config/import");
+  Serial.println("  -------- v2.1.0 Features --------");
+  Serial.println("  GET  /manifest.json (PWA)");
+  Serial.println("  GET  /sw.js (Service Worker)");
+  Serial.println("  GET  /api/health (System Health)");
+  Serial.println("  GET  /api/cpu-temp (CPU Temperature)");
+  Serial.println("  GET  /api/costs (Kosten-Berechnung)");
+  Serial.println("  GET/POST /api/log-level (Log-Level)");
+  Serial.println("  POST /api/factory-reset (Factory Reset)");
+  Serial.println("  WebSocket: /ws (Live-Updates)");
   Serial.println("  ArduinoOTA aktiv (Port 3232)");
   
   String ip = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
@@ -2864,6 +2859,16 @@ void setup() {
   delay(1000);
   Serial.println("\n\nESP32 Gaszähler Gateway v" + String(FIRMWARE_VERSION));
   Serial.println("================================");
+  
+  // Health Stats initialisieren
+  healthStats.bootTime = millis();
+  healthStats.bootReason = esp_reset_reason();
+  healthStats.minHeapFree = ESP.getFreeHeap();
+  const char* bootReasons[] = {
+    "UNKNOWN", "POWERON", "EXT", "SW", "PANIC", "INT_WDT", 
+    "TASK_WDT", "WDT", "DEEPSLEEP", "BROWNOUT", "SDIO"
+  };
+  Serial.println("Boot Grund: " + String(bootReasons[healthStats.bootReason]));
   
   // Status LED
   pinMode(STATUS_LED_PIN, OUTPUT);
@@ -2940,6 +2945,17 @@ void setup() {
 
   setupOTA();
   
+  // WebSocket initialisieren
+  ws.onEvent([](AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type,
+                void *arg, uint8_t *data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+      Serial.println("WebSocket Client #" + String(client->id()) + " verbunden");
+    } else if (type == WS_EVT_DISCONNECT) {
+      Serial.println("WebSocket Client #" + String(client->id()) + " getrennt");
+    }
+  });
+  server.addHandler(&ws);
+  
   // WebServer starten (funktioniert sowohl im AP als auch Station-Modus)
   setupWebServer();
   
@@ -2956,25 +2972,29 @@ void setup() {
 
 // ---- Loop ----
 void loop() {
-  // Im AP-Modus nur WebServer und OTA
+  // Im AP-Modus nur ArduinoOTA und Status LED
   if (apMode) {
     ArduinoOTA.handle();
-    server.handleClient();
     updateStatusLED();
+    ws.cleanupClients(); // WebSocket Cleanup
     return;
   }
   
   // WLAN Check
   if (WiFi.status() != WL_CONNECTED) {
     errorStats.wifiDisconnects++;
+    healthStats.wifiReconnects++;
     logError("WLAN Verbindung verloren");
     setup_wifi();
   }
   
-  if (!client.connected()) reconnect();
+  if (!client.connected()) {
+    healthStats.mqttReconnects++;
+    reconnect();
+  }
   client.loop();
   ArduinoOTA.handle();
-  server.handleClient();
+  ws.cleanupClients(); // WebSocket Cleanup
   updateStatusLED();
   
   // Memory Check alle 60 Sekunden
@@ -2982,6 +3002,13 @@ void loop() {
   if (now - lastMemoryCheck >= MEMORY_CHECK_INTERVAL) {
     checkMemory();
     lastMemoryCheck = now;
+  }
+  
+  // WebSocket Update alle 5 Sekunden broadcasten (für verbundene Clients)
+  static unsigned long lastWsBroadcast = 0;
+  if (now - lastWsBroadcast >= 5000 && ws.count() > 0) {
+    broadcastWebSocketUpdate();
+    lastWsBroadcast = now;
   }
   
   // Status alle 60 Sekunden ausgeben
@@ -3121,21 +3148,12 @@ void loop() {
               addLog("MQTT: Publish Fehler");
             }
             
-            // Verlauf speichern mit echter Zeit wenn verfügbar
+            // Letzte Werte speichern für Flow-Berechnung
             lastVolume = volume;
             lastVolumeTimestamp = timestamp;
-            measurements.push_back({timestamp, volume});
-            if (measurements.size() > MAX_MEASUREMENTS) {
-              measurements.erase(measurements.begin());
-            }
             
-            // Alle 10 Messungen persistieren
-            static int saveCounter = 0;
-            saveCounter++;
-            if (saveCounter >= 10) {
-              saveHistory();
-              saveCounter = 0;
-            }
+            // WebSocket Update broadcasten
+            broadcastWebSocketUpdate();
           } else {
             Serial.println("Kein Volumenwert gefunden!");
             errorStats.mbusParseErrors++;

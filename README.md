@@ -1,22 +1,50 @@
 # 🏭 BK-G4AT2MQTT - ESP32 Gaszähler Gateway
 
 > **Original Projekt von [BennoB666](https://github.com/BennoB666/BK-G4AT2MQTT)**  
-> Dieser Fork wurde massiv erweitert mit professioneller WebUI, Live-Monitoring und umfangreichen Features.
+> Dieser Fork wurde massiv erweitert mit professioneller WebUI, Live-Monitoring, modularer Architektur und Sicherheits-Features.
 
 Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **Honeywell BK-G4AT Gaszählers** mit vollständiger MQTT Integration und moderner Web-Oberfläche.
 
-[![Version](https://img.shields.io/badge/Version-2.0.5-brightgreen.svg)](https://github.com/fgrfn/BK-G4AT2MQTT/releases)
+[![Version](https://img.shields.io/badge/Version-2.1.0-brightgreen.svg)](https://github.com/fgrfn/BK-G4AT2MQTT/releases)
 [![Platform](https://img.shields.io/badge/ESP32-DevKit%20V1-blue.svg)](https://www.espressif.com/en/products/socs/esp32)
 [![Framework](https://img.shields.io/badge/Arduino-Framework-teal.svg)](https://www.arduino.cc/)
-[![MQTT](https://img.shields.io/badge/MQTT-3.1.1-orange.svg)](https://mqtt.org/)
+[![MQTT](https://img.shields.io/badge/MQTT-3.1.1%20%7C%20TLS-orange.svg)](https://mqtt.org/)
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Compatible-green.svg)](https://www.home-assistant.io/)
 [![Chart.js](https://img.shields.io/badge/Chart.js-4.4.0-ff6384.svg)](https://www.chartjs.org/)
+[![Security](https://img.shields.io/badge/Security-TLS%20%7C%20Auth-red.svg)](#security)
+[![Architecture](https://img.shields.io/badge/Code-Modular-blue.svg)](ARCHITECTURE.md)
+
+---
+
+## 🆕 Neu in v2.1.0
+
+### 🏗️ **Modulare Code-Architektur**
+- Aufgeteilt in 8 spezialisierte Module für bessere Wartbarkeit
+- Zentrale Konstanten-Verwaltung ([constants.h](include/constants.h))
+- Debug-Makro-System mit granularer Kontrolle
+- Optimierte Memory-Management (snprintf statt String-Konkatenation)
+- **→ Siehe [ARCHITECTURE.md](ARCHITECTURE.md) für Details**
+
+### 🔐 **Erweiterte Sicherheits-Features**
+- **WebUI Authentifizierung** (HTTP Digest Auth)
+- **MQTT-TLS Support** (verschlüsselte Verbindung zum Broker)
+- **NVS Flash Encryption** Ready (optional)
+- Sichere Credential-Verwaltung
+- **→ Siehe [SECURITY.md](SECURITY.md) für Konfiguration**
+
+### 🛠️ **Entwickler-Verbesserungen**
+- Production & Debug Build-Environments
+- Conditional Compilation für Debug-Ausgaben
+- Vorbereitet für Unit-Tests
+- Umfassende Code-Dokumentation
 
 ---
 
 ## 📑 Inhaltsverzeichnis
 
 - [Features](#-features)
+- [Neue Architektur](#-modulare-architektur)
+- [Sicherheit](#-sicherheits-features)
 - [Hardware Setup](#-hardware-setup)
 - [Installation](#-installation)
 - [WebUI Übersicht](#-webui-übersicht)
@@ -24,6 +52,61 @@ Ein leistungsstarkes ESP32 Gateway zum Auslesen der M-Bus Schnittstelle eines **
 - [Konfiguration](#-konfiguration)
 - [OTA Updates](#-ota-updates)
 - [Technische Details](#-technische-details)
+
+---
+
+## 🏗️ Modulare Architektur
+
+Das Projekt wurde komplett refaktoriert für professionelle Wartbarkeit:
+
+```
+include/
+├── constants.h      # Zentrale Konstanten & Debug-Makros
+├── Logger.h         # Logging-System
+├── Config.h         # Konfigurations-Management
+├── MBusReader.h     # M-Bus Kommunikation
+├── WiFiManager.h    # WiFi-Verwaltung
+├── MQTTHandler.h    # MQTT & Home Assistant
+├── WebAuth.h        # WebUI Authentifizierung
+└── MQTTTls.h        # TLS/SSL Support
+```
+
+**Vorteile:**
+- ✅ Klare Separation of Concerns
+- ✅ Einfachere Wartung & Testing
+- ✅ Reduzierte Code-Duplikation
+- ✅ Memory-optimiert (snprintf statt String)
+
+**Details:** [ARCHITECTURE.md](ARCHITECTURE.md)
+
+---
+
+## 🔐 Sicherheits-Features
+
+### WebUI Authentifizierung
+```cpp
+// In main.cpp aktivieren
+WebAuth::init("admin", "DeinSicheresPasswort");
+```
+
+### MQTT über TLS
+```cpp
+WiFiClientSecure secureClient;
+MQTTTls::init(secureClient);
+MQTTTls::setCACert(MQTT_CA_CERT);
+MQTTHandler::init(secureClient);
+```
+
+### Build mit Security-Features
+```bash
+# Debug Build mit allen Features
+pio run -e esp32dev-debug
+
+# Production Build (optimiert)
+pio run
+```
+
+**Vollständige Anleitung:** [SECURITY.md](SECURITY.md)
 
 ---
 
