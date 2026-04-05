@@ -2306,7 +2306,7 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
 void handleRoot(AsyncWebServerRequest *request) {
   // beginResponse_P streamt direkt aus Flash in 1460-Byte-Chunks – kein 68KB Heap-Block nötig
   static const size_t htmlLen = sizeof(htmlPage) - 1; // minus Null-Terminator
-  AsyncWebServerResponse *response = request->beginResponse_P(
+  AsyncWebServerResponse *response = request->beginResponse(
       200, "text/html; charset=utf-8", (const uint8_t*)htmlPage, htmlLen);
   request->send(response);
 }
