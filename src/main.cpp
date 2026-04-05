@@ -1212,6 +1212,32 @@ const char htmlPage[] PROGMEM = R"rawliteral(
         </div>
       </div>
 
+      <div class="card" id="costsCard">
+        <h2 style="margin-bottom: 20px;">&#128176; Gaskosten-Prognose</h2>
+        <div style="font-size:0.8em; color:var(--text-muted); margin-bottom:12px;">Hochrechnung basierend auf aktuellem Durchfluss &bull; Grundpreis + Arbeitspreis</div>
+        <div class="status-grid">
+          <div class="status-item">
+            <div class="label">&#128197; Pro Tag</div>
+            <div class="value" id="costDaily">-- &euro;</div>
+          </div>
+          <div class="status-item">
+            <div class="label">&#128197; Pro Woche</div>
+            <div class="value" id="costWeekly">-- &euro;</div>
+          </div>
+          <div class="status-item">
+            <div class="label">&#128197; Pro Monat</div>
+            <div class="value" id="costMonthly">-- &euro;</div>
+          </div>
+          <div class="status-item">
+            <div class="label">&#128197; Pro Jahr</div>
+            <div class="value" id="costYearly">-- &euro;</div>
+          </div>
+        </div>
+        <div style="margin-top:12px; font-size:0.78em; color:var(--text-muted);">
+          Grundpreis: <span id="costBasePriceDisplay">--</span> &euro;/Monat &nbsp;&bull;&nbsp; Arbeitspreis: <span id="costWorkPriceDisplay">--</span> &euro;/kWh
+        </div>
+      </div>
+
       <div class="card">
         <h2 style="margin-bottom: 20px;">&#9830; Aktuelle Werte</h2>
         <div class="status-grid">
@@ -1334,7 +1360,19 @@ const char htmlPage[] PROGMEM = R"rawliteral(
             <input type="number" id="gas_correction" name="gas_correction" step="0.000001" min="0.90" max="1.10" required>
             <small style="color: var(--text-muted);">Zustandszahl für Druck/Temperatur (typisch 0.95-0.97, siehe Gasrechnung)</small>
           </div>
-          
+
+          <h3 style="margin-top: 30px;">&#128176; Gaspreise (für Kostenprognose)</h3>
+          <div class="form-group">
+            <label>Grundpreis (&#8364;/Monat)</label>
+            <input type="number" id="gas_base_price" name="gas_base_price" step="0.01" min="0" max="500">
+            <small style="color: var(--text-muted);">Monatlicher Grundpreis inkl. Messstellenentgelt (siehe Gasrechnung)</small>
+          </div>
+          <div class="form-group">
+            <label>Arbeitspreis (&#8364;/kWh)</label>
+            <input type="number" id="gas_work_price" name="gas_work_price" step="0.0001" min="0" max="2">
+            <small style="color: var(--text-muted);">Arbeitspreis pro kWh (typisch 0.06-0.15 &#8364;/kWh, siehe Gasrechnung)</small>
+          </div>
+
           <button type="submit" class="btn" style="width: 100%; padding: 16px; font-size: 1.05em; margin-top: 10px;">&#128190; Speichern & Neustart</button>
         </form>
         
@@ -1697,6 +1735,21 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
           if (el('currentCorrection')) {
             el('currentCorrection').textContent = data.correction > 0 ? data.correction.toFixed(6) : '--';
           }
+
+          // Gaskosten-Prognose
+          fetch('/api/costs')
+            .then(r => r.json())
+            .then(costs => {
+              const hasFlow = costs.daily_gas_m3 > 0;
+              const fmt = (v) => hasFlow ? v.toFixed(2) + ' \u20AC' : '-- \u20AC';
+              if (el('costDaily'))   el('costDaily').textContent   = fmt(costs.cost_daily);
+              if (el('costWeekly'))  el('costWeekly').textContent  = fmt(costs.cost_weekly);
+              if (el('costMonthly')) el('costMonthly').textContent = fmt(costs.cost_monthly);
+              if (el('costYearly'))  el('costYearly').textContent  = fmt(costs.cost_yearly);
+              if (el('costBasePriceDisplay'))  el('costBasePriceDisplay').textContent  = costs.base_price_monthly.toFixed(2);
+              if (el('costWorkPriceDisplay'))  el('costWorkPriceDisplay').textContent  = costs.work_price_kwh.toFixed(4);
+            })
+            .catch(() => {});
           
           // IP-Adresse in Update-Seite eintragen
           const ipAddress = data.ipAddress || window.location.hostname || '10.10.40.109';
@@ -1805,6 +1858,8 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
           if (el('poll_interval')) el('poll_interval').value = data.poll_interval;
           if (el('gas_calorific')) el('gas_calorific').value = (data.gas_calorific || 10.0).toFixed(6);
           if (el('gas_correction')) el('gas_correction').value = (data.gas_correction || 1.0).toFixed(6);
+          if (el('gas_base_price')) el('gas_base_price').value = (data.gas_base_price || 10.0).toFixed(2);
+          if (el('gas_work_price')) el('gas_work_price').value = (data.gas_work_price || 0.12).toFixed(4);
           
           // Static IP Felder
           const useStaticIp = data.use_static_ip || false;
@@ -1962,6 +2017,8 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
         })(),
         gas_calorific: parseFloat(formData.get('gas_calorific')),
         gas_correction: parseFloat(formData.get('gas_correction')),
+        gas_base_price: parseFloat(formData.get('gas_base_price')),
+        gas_work_price: parseFloat(formData.get('gas_work_price')),
         use_static_ip: document.getElementById('use_static_ip').checked,
         static_ip: formData.get('static_ip'),
         static_gateway: formData.get('static_gateway'),
@@ -2298,6 +2355,8 @@ void handleConfigGet(AsyncWebServerRequest *request) {
   json += "\"poll_interval\":" + String(poll_interval / 1000) + ",";
   json += "\"gas_calorific\":" + String(gas_calorific_value, 6) + ",";
   json += "\"gas_correction\":" + String(gas_correction_factor, 6) + ",";
+  json += "\"gas_base_price\":" + String(gas_base_price_monthly, 2) + ",";
+  json += "\"gas_work_price\":" + String(gas_work_price_per_kwh, 4) + ",";
   json += "\"use_static_ip\":" + String(use_static_ip ? "true" : "false") + ",";
   json += "\"static_ip\":\"" + String(static_ip) + "\",";
   json += "\"static_gateway\":\"" + String(static_gateway) + "\",";
@@ -2630,6 +2689,16 @@ void handleConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len,
       gas_correction_factor = (v >= 0.90 && v <= 1.10) ? v : 1.0;
     }
 
+    if (jsonExtractNumber(bodyBuffer, "gas_base_price", numVal)) {
+      float v = numVal.toFloat();
+      if (v >= 0.0 && v <= 500.0) gas_base_price_monthly = v;
+    }
+
+    if (jsonExtractNumber(bodyBuffer, "gas_work_price", numVal)) {
+      float v = numVal.toFloat();
+      if (v >= 0.0 && v <= 2.0) gas_work_price_per_kwh = v;
+    }
+
     if (jsonExtractBool(bodyBuffer, "use_static_ip", boolVal)) {
       use_static_ip = boolVal;
     }
@@ -2762,29 +2831,35 @@ self.addEventListener('fetch', e => {
 // Kosten berechnen
 void handleCostCalculation(AsyncWebServerRequest *request) {
   float volume = lastVolume;
-  float energy_kwh = volume * gas_calorific_value * gas_correction_factor;
+  // Gesamtenergie seit Zählerstart (informativ)
+  float totalEnergy = (volume >= 0) ? volume * gas_calorific_value * gas_correction_factor : 0.0f;
 
-  // Kosten = Arbeitspreis * kWh + Grundpreis (anteilig)
-  float costWork = energy_kwh * gas_work_price_per_kwh;
-  float costBase = gas_base_price_monthly / 30.0; // Pro Tag
-  
-  // Hochrechnung auf Monat/Jahr basierend auf aktuellem Durchfluss
-  float dailyCost = costWork + costBase;
-  float monthlyCost = dailyCost * 30.0;
-  float yearlyCost = dailyCost * 365.0;
-  
+  // Prognose basierend auf aktuellem Durchfluss (m³/h)
+  float dailyGas    = lastFlowM3h * 24.0f;                           // m³/Tag
+  float dailyEnergy = dailyGas * gas_calorific_value * gas_correction_factor; // kWh/Tag
+  float dailyWork   = dailyEnergy * gas_work_price_per_kwh;          // €/Tag (Arbeitspreis)
+  float dailyBase   = gas_base_price_monthly / 30.0f;                // €/Tag (Grundpreis anteilig)
+  float dailyCost   = dailyWork + dailyBase;                         // €/Tag gesamt
+
+  float weeklyCost  = dailyWork * 7.0f  + gas_base_price_monthly / 4.0f;  // €/Woche
+  float monthlyCost = dailyWork * 30.0f + gas_base_price_monthly;          // €/Monat
+  float yearlyCost  = dailyWork * 365.0f + gas_base_price_monthly * 12.0f; // €/Jahr
+
   String json = "{";
   json += "\"volume\":" + String(volume, 2) + ",";
-  json += "\"energy_kwh\":" + String(energy_kwh, 2) + ",";
-  json += "\"cost_work\":" + String(costWork, 2) + ",";
-  json += "\"cost_base_daily\":" + String(costBase, 2) + ",";
-  json += "\"cost_total_today\":" + String(dailyCost, 2) + ",";
+  json += "\"total_energy_kwh\":" + String(totalEnergy, 2) + ",";
+  json += "\"daily_gas_m3\":" + String(dailyGas, 4) + ",";
+  json += "\"daily_energy_kwh\":" + String(dailyEnergy, 4) + ",";
+  json += "\"daily_work_cost\":" + String(dailyWork, 2) + ",";
+  json += "\"daily_base_cost\":" + String(dailyBase, 2) + ",";
+  json += "\"cost_daily\":" + String(dailyCost, 2) + ",";
+  json += "\"cost_weekly\":" + String(weeklyCost, 2) + ",";
   json += "\"cost_monthly\":" + String(monthlyCost, 2) + ",";
   json += "\"cost_yearly\":" + String(yearlyCost, 2) + ",";
   json += "\"base_price_monthly\":" + String(gas_base_price_monthly, 2) + ",";
   json += "\"work_price_kwh\":" + String(gas_work_price_per_kwh, 4) + "";
   json += "}";
-  
+
   request->send(200, "application/json", json);
 }
 
