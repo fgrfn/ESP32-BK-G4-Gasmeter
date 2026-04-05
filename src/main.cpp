@@ -192,6 +192,7 @@ float lastVolume = -1;
 float lastFlowM3h = 0.0;
 unsigned long lastVolumeTimestamp = 0;
 unsigned long lastMemoryCheck = 0;
+unsigned long pendingRestartAt = 0;  // >0: Neustart geplant
 
 // ---- M-Bus UART ----
 HardwareSerial mbusSerial(1); // UART1
@@ -1997,16 +1998,20 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
     function saveConfig(event) {
       event.preventDefault();
       const formData = new FormData(event.target);
+      // Komma → Punkt für Dezimaleingaben (deutsche Locale)
+      const fFloat = (key, def) => {
+        const v = parseFloat((formData.get(key) || '').replace(',', '.'));
+        return isNaN(v) ? def : v;
+      };
       const config = {
         ssid: formData.get('ssid'),
         password: formData.get('password'),
         hostname: formData.get('hostname'),
         mqtt_server: formData.get('mqtt_server'),
-        mqtt_port: parseInt(formData.get('mqtt_port')),
+        mqtt_port: parseInt(formData.get('mqtt_port')) || 1883,
         mqtt_user: formData.get('mqtt_user'),
         mqtt_pass: formData.get('mqtt_pass'),
         mqtt_topic: formData.get('mqtt_topic'),
-        // Ensure we send a valid integer: prefer parsed FormData, fallback to element value, then default 30
         poll_interval: (function(){
           const v = parseInt(formData.get('poll_interval'));
           if (!isNaN(v) && v > 0) return v;
@@ -2015,10 +2020,10 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
           if (!isNaN(ev) && ev > 0) return ev;
           return 30;
         })(),
-        gas_calorific: parseFloat(formData.get('gas_calorific')),
-        gas_correction: parseFloat(formData.get('gas_correction')),
-        gas_base_price: parseFloat(formData.get('gas_base_price')),
-        gas_work_price: parseFloat(formData.get('gas_work_price')) / 100,
+        gas_calorific:  fFloat('gas_calorific', 10.0),
+        gas_correction: fFloat('gas_correction', 1.0),
+        gas_base_price: fFloat('gas_base_price', 10.0),
+        gas_work_price: fFloat('gas_work_price', 12.0) / 100,
         use_static_ip: document.getElementById('use_static_ip').checked,
         static_ip: formData.get('static_ip'),
         static_gateway: formData.get('static_gateway'),
@@ -2705,7 +2710,6 @@ void handleConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len,
 
     saveConfig();
     request->send(200, "application/json", "{\"status\":\"ok\"}");
-    
     bodyBuffer = "";
 
     Serial.println("Konfiguration gespeichert.");
@@ -2714,8 +2718,7 @@ void handleConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len,
     } else {
       Serial.println("Neustart in 3 Sekunden...");
     }
-    delay(3000);
-    ESP.restart();
+    pendingRestartAt = millis() + 3000;  // Neustart über loop() planen
   }
 }
 
@@ -3075,6 +3078,12 @@ void setup() {
 
 // ---- Loop ----
 void loop() {
+  // Geplanter Neustart (aus Konfig-Handler, um delay() im Async-Handler zu vermeiden)
+  if (pendingRestartAt > 0 && millis() >= pendingRestartAt) {
+    pendingRestartAt = 0;
+    ESP.restart();
+  }
+
   // Im AP-Modus nur ArduinoOTA und Status LED
   if (apMode) {
     ArduinoOTA.handle();
