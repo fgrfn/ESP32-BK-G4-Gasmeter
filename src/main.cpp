@@ -2613,16 +2613,6 @@ void handleConfigPost(AsyncWebServerRequest *request, uint8_t *data, size_t len,
   }
 }
 
-  Serial.println("Konfiguration gespeichert.");
-  if (apMode) {
-    Serial.println("Wechsel zu Station-Modus in 3 Sekunden...");
-  } else {
-    Serial.println("Neustart in 3 Sekunden...");
-  }
-  delay(3000);
-  ESP.restart();
-}
-
 // ---- Neue API Endpoints ----
 
 // Factory Reset
