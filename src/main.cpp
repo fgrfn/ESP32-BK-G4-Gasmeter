@@ -2304,8 +2304,8 @@ upload_port = <span id="currentIP2" style="color: #10b981; font-weight: bold;">L
 )rawliteral";
 
 void handleRoot(AsyncWebServerRequest *request) {
-  // Große HTML-Seite direkt aus Flash/PROGMEM ausliefern
-  request->send_P(200, "text/html", htmlPage);
+  // Auf ESP32 ist PROGMEM im selben Adressraum - send() ist zuverlässiger als send_P()
+  request->send(200, "text/html; charset=utf-8", htmlPage);
 }
 
 void handleAPI(AsyncWebServerRequest *request) {
