@@ -68,6 +68,7 @@ void MBusReader::finishFrame() {
   stats_.lastError = result.error;
   if (result.valid) {
     stats_.successful++;
+    stats_.lastSuccessMs = millis();
     Logger::info("M-Bus volume: " + String(result.volumeM3, 3) + " m3");
     if (callback_) callback_(static_cast<float>(result.volumeM3));
   } else {
@@ -91,7 +92,6 @@ void MBusReader::loop() {
   while (serial_.available()) {
     const uint8_t byte = static_cast<uint8_t>(serial_.read());
     if (length_ == 0) {
-      // Ignore request echo, ACK and line noise until a long-frame start byte arrives.
       if (byte != 0x68) continue;
       buffer_[length_++] = byte;
     } else {
@@ -133,6 +133,12 @@ void MBusReader::loop() {
     state_ = State::Idle;
     nextPollAt_ = now + Config::pollIntervalMs;
   }
+}
+
+bool MBusReader::healthy() {
+  if (stats_.lastSuccessMs == 0) return false;
+  const uint32_t dynamicWindow = Config::pollIntervalMs > 40000UL ? Config::pollIntervalMs * 3UL : 120000UL;
+  return millis() - stats_.lastSuccessMs <= dynamicWindow;
 }
 
 const MBusStats& MBusReader::stats() { return stats_; }
