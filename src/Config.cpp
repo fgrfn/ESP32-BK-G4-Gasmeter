@@ -24,7 +24,7 @@ bool Config::mqttTlsInsecure = false;
 String Config::mqttCaCert;
 bool Config::mqttCommandsEnabled = false;
 char Config::webUser[33] = "admin";
-char Config::webPassword[65] = "";
+char Config::webPassword[65] = "admin";
 char Config::otaPassword[65] = "";
 char Config::deviceId[33] = "";
 uint32_t Config::pollIntervalMs = Constants::DEFAULT_POLL_INTERVAL_MS;
@@ -175,8 +175,8 @@ void Config::setDefaults() {
   mqttTlsInsecure = false;
   mqttCaCert = "";
   mqttCommandsEnabled = false;
-  strlcpy(webUser, "admin", sizeof(webUser));
-  webPassword[0] = '\0';
+  strlcpy(webUser, Constants::DEFAULT_WEB_USER, sizeof(webUser));
+  strlcpy(webPassword, Constants::DEFAULT_WEB_PASSWORD, sizeof(webPassword));
   otaPassword[0] = '\0';
   pollIntervalMs = Constants::DEFAULT_POLL_INTERVAL_MS;
   calorificValue = Constants::DEFAULT_CALORIFIC_VALUE;
@@ -206,7 +206,8 @@ void Config::ensureDefaultMqttTopic() {
 }
 
 void Config::ensureSecrets() {
-  if (webPassword[0] == '\0') randomSecret(webPassword, 17);
+  if (webUser[0] == '\0') strlcpy(webUser, Constants::DEFAULT_WEB_USER, sizeof(webUser));
+  if (webPassword[0] == '\0') strlcpy(webPassword, Constants::DEFAULT_WEB_PASSWORD, sizeof(webPassword));
   if (otaPassword[0] == '\0') randomSecret(otaPassword, 17);
 }
 
@@ -215,6 +216,10 @@ void Config::migrate(uint32_t fromSchema) {
   if (fromSchema < 4 && (mqttBaseTopic[0] == '\0' || strcmp(mqttBaseTopic, "gasmeter") == 0)) {
     mqttBaseTopic[0] = '\0';
     ensureDefaultMqttTopic();
+  }
+  if (fromSchema < 5) {
+    strlcpy(webUser, Constants::DEFAULT_WEB_USER, sizeof(webUser));
+    strlcpy(webPassword, Constants::DEFAULT_WEB_PASSWORD, sizeof(webPassword));
   }
 }
 
@@ -278,6 +283,10 @@ bool Config::load() {
     ensureSecrets();
     save();
     return false;
+  }
+  if (strcmp(webUser, Constants::DEFAULT_WEB_USER) == 0 &&
+      strcmp(webPassword, Constants::DEFAULT_WEB_PASSWORD) == 0) {
+    Logger::warn("WebUI uses default credentials; change them in the Security settings");
   }
   save();
   return true;
