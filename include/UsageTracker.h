@@ -41,7 +41,6 @@ class UsageTracker {
   static void addDailyRecord(const char* date, float volumeM3, float energyKwh);
   static void updatePeriods(float volume, float energy, time_t now);
   static void updateContinuousFlow(float flowM3h);
-  static void keyForTime(time_t now, char* dayKey, size_t daySize, char* monthKey, size_t monthSize, char* yearKey, size_t yearSize);
   static Preferences preferences_;
   static UsageSnapshot snapshot_;
   static float previousVolume_;
