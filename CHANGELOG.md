@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.1.1 - unreleased
+
+### Changed
+
+- Initial WebUI credentials are now the documented defaults `admin` / `admin`.
+- WebUI username and password remain editable under **Configuration → Security** and are persisted in NVS.
+- Configuration schema is now `5`; upgrading from an older schema resets the WebUI login once to the documented defaults.
+- ArduinoOTA continues to use its own separately generated/configurable password.
+
+### Security
+
+- The firmware logs a warning while the default WebUI credentials are active.
+- Documentation now explicitly requires changing the initial login after commissioning.
+
 ## 3.1.0 - unreleased
 
 ### Added
