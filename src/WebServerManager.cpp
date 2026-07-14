@@ -1,6 +1,7 @@
 #include "WebServerManager.h"
 #include <ArduinoJson.h>
-#include <AsyncJson.h>
+#include <cstdlib>
+#include <cstring>
 #include <Update.h>
 #include <WiFi.h>
 #include <esp_ota_ops.h>
@@ -39,6 +40,42 @@ $('config').onsubmit=async e=>{e.preventDefault();const c={wifi:{ssid:$('ssid').
 $('pollNow').onclick=()=>json('/api/mbus/poll',{method:'POST'}).then(status).catch(e=>alert(e.message));$('export').onclick=()=>location.href='/api/config/export';$('reset').onclick=async()=>{if(prompt('Zum Löschen RESET eingeben')!=='RESET')return;await json('/api/factory-reset',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"confirm":"RESET"}'});alert('Reset gestartet')};
 if('serviceWorker'in navigator)navigator.serviceWorker.register('/sw.js').catch(()=>{});
 </script></main></body></html>)HTML";
+
+void releaseJsonBody(AsyncWebServerRequest* request) {
+  if (!request || !request->_tempObject) return;
+  std::free(request->_tempObject);
+  request->_tempObject = nullptr;
+}
+
+bool bufferJsonBody(AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total, size_t limit) {
+  if (total == 0 || total > limit || index > total || len > total - index) {
+    releaseJsonBody(request);
+    if (index == 0) request->send(413, "application/json", "{\"error\":\"request body too large or chunked\"}");
+    return false;
+  }
+  if (index == 0) {
+    releaseJsonBody(request);
+    request->_tempObject = std::calloc(total + 1, sizeof(uint8_t));
+    if (!request->_tempObject) {
+      request->send(503, "application/json", "{\"error\":\"out of memory\"}");
+      return false;
+    }
+  }
+  if (!request->_tempObject) return false;
+  std::memcpy(static_cast<uint8_t*>(request->_tempObject) + index, data, len);
+  return index + len == total;
+}
+
+bool parseBufferedJson(AsyncWebServerRequest* request, size_t total, JsonDocument& document) {
+  if (!request->_tempObject) return false;
+  const DeserializationError error = deserializeJson(document, static_cast<const char*>(request->_tempObject), total);
+  releaseJsonBody(request);
+  if (error) {
+    request->send(400, "application/json", "{\"error\":\"invalid JSON\"}");
+    return false;
+  }
+  return true;
+}
 
 void addUsage(JsonObject target, const UsageSnapshot& usage) {
   target["raw_volume_m3"] = usage.rawVolumeM3;
@@ -123,25 +160,28 @@ void WebServerManager::registerRoutes() {
     sendJson(request, doc);
   });
 
-  auto* configHandler = new AsyncCallbackJsonWebHandler("/api/config", [](AsyncWebServerRequest* request, JsonVariant& json) {
-    if (!authorize(request)) return;
-    String error;
-    JsonVariantConst payload = json;
-    if (!Config::importJson(payload, error) || !Config::save()) {
-      JsonDocument doc;
-      doc["error"] = error.isEmpty() ? "save failed" : error;
-      sendJson(request, doc, 400);
-      return;
+  server_.on("/api/config", HTTP_POST,
+    [](AsyncWebServerRequest*) {},
+    nullptr,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (!authorize(request)) return;
+      if (!bufferJsonBody(request, data, len, index, total, Constants::MAX_JSON_BODY)) return;
+      JsonDocument input;
+      if (!parseBufferedJson(request, total, input)) return;
+      String error;
+      if (!Config::importJson(input.as<JsonVariantConst>(), error) || !Config::save()) {
+        JsonDocument response;
+        response["error"] = error.isEmpty() ? "save failed" : error;
+        sendJson(request, response, 400);
+        return;
+      }
+      JsonDocument response;
+      response["status"] = "ok";
+      response["restart"] = true;
+      sendJson(request, response);
+      restartAt_ = millis() + 1500;
     }
-    JsonDocument doc;
-    doc["status"] = "ok";
-    doc["restart"] = true;
-    sendJson(request, doc);
-    restartAt_ = millis() + 1500;
-  });
-  configHandler->setMethod(HTTP_POST);
-  configHandler->setMaxContentLength(Constants::MAX_JSON_BODY);
-  server_.addHandler(configHandler);
+  );
 
   server_.on("/api/config/export", HTTP_GET, [](AsyncWebServerRequest* request) {
     if (!authorize(request)) return;
@@ -193,18 +233,27 @@ void WebServerManager::registerRoutes() {
     request->send(200, "text/plain; version=0.0.4", output);
   });
 
-  auto* resetHandler = new AsyncCallbackJsonWebHandler("/api/factory-reset", [](AsyncWebServerRequest* request, JsonVariant& json) {
-    if (!authorize(request, false)) return;
-    if (strcmp(json["confirm"] | "", "RESET") != 0) {
-      JsonDocument doc; doc["error"] = "confirmation required"; sendJson(request, doc, 400); return;
+  server_.on("/api/factory-reset", HTTP_POST,
+    [](AsyncWebServerRequest*) {},
+    nullptr,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (!authorize(request, false)) return;
+      if (!bufferJsonBody(request, data, len, index, total, 256)) return;
+      JsonDocument input;
+      if (!parseBufferedJson(request, total, input)) return;
+      if (strcmp(input["confirm"] | "", "RESET") != 0) {
+        JsonDocument response;
+        response["error"] = "confirmation required";
+        sendJson(request, response, 400);
+        return;
+      }
+      Config::factoryReset();
+      JsonDocument response;
+      response["status"] = "resetting";
+      sendJson(request, response);
+      restartAt_ = millis() + 1000;
     }
-    Config::factoryReset();
-    JsonDocument doc; doc["status"] = "resetting"; sendJson(request, doc);
-    restartAt_ = millis() + 1000;
-  });
-  resetHandler->setMethod(HTTP_POST);
-  resetHandler->setMaxContentLength(256);
-  server_.addHandler(resetHandler);
+  );
 
   server_.on("/api/restart", HTTP_POST, [](AsyncWebServerRequest* request) {
     if (!authorize(request, false)) return;
