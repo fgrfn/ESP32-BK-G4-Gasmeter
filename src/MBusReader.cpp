@@ -1,4 +1,5 @@
 #include "MBusReader.h"
+#include <cstring>
 #include "Config.h"
 #include "Logger.h"
 
@@ -12,6 +13,20 @@ uint32_t MBusReader::nextPollAt_ = 0;
 uint64_t MBusReader::totalResponseMs_ = 0;
 MBusStats MBusReader::stats_;
 MBusReader::ReadingCallback MBusReader::callback_;
+
+namespace {
+void resyncLongFrame(uint8_t* buffer, size_t& length) {
+  size_t nextStart = 1;
+  while (nextStart < length && buffer[nextStart] != 0x68) ++nextStart;
+  if (nextStart >= length) {
+    length = 0;
+    return;
+  }
+  const size_t remaining = length - nextStart;
+  std::memmove(buffer, buffer + nextStart, remaining);
+  length = remaining;
+}
+}
 
 void MBusReader::begin(ReadingCallback callback) {
   callback_ = callback;
@@ -41,7 +56,6 @@ bool MBusReader::trigger() {
 void MBusReader::finishFrame() {
   stats_.lastResponseMs = millis() - sentAt_;
   totalResponseMs_ += stats_.lastResponseMs;
-  stats_.averageResponseMs = stats_.polls ? static_cast<uint32_t>(totalResponseMs_ / stats_.polls) : 0;
   stats_.lastHexDump = "";
   const size_t dumpLength = length_ < 64 ? length_ : 64;
   for (size_t i = 0; i < dumpLength; ++i) {
@@ -61,6 +75,8 @@ void MBusReader::finishFrame() {
     if (result.error == MBusProtocol::Error::ChecksumMismatch) stats_.checksumErrors++;
     Logger::error("M-Bus parse error: " + String(MBusProtocol::errorToString(result.error)));
   }
+  const uint32_t completedResponses = stats_.successful + stats_.parseErrors;
+  stats_.averageResponseMs = completedResponses ? static_cast<uint32_t>(totalResponseMs_ / completedResponses) : 0;
   state_ = State::Idle;
   nextPollAt_ = millis() + Config::pollIntervalMs;
 }
@@ -72,9 +88,35 @@ void MBusReader::loop() {
     return;
   }
 
-  while (serial_.available() && length_ < sizeof(buffer_)) {
-    buffer_[length_++] = static_cast<uint8_t>(serial_.read());
-    if (expectedLength_ == 0) expectedLength_ = MBusProtocol::expectedFrameLength(buffer_, length_);
+  while (serial_.available()) {
+    const uint8_t byte = static_cast<uint8_t>(serial_.read());
+    if (length_ == 0) {
+      // Ignore request echo, ACK and line noise until a long-frame start byte arrives.
+      if (byte != 0x68) continue;
+      buffer_[length_++] = byte;
+    } else {
+      if (length_ >= sizeof(buffer_)) {
+        length_ = 0;
+        expectedLength_ = 0;
+        continue;
+      }
+      buffer_[length_++] = byte;
+    }
+
+    if (expectedLength_ == 0 && length_ >= 4) {
+      expectedLength_ = MBusProtocol::expectedFrameLength(buffer_, length_);
+      if (expectedLength_ == 0 || expectedLength_ > sizeof(buffer_)) {
+        resyncLongFrame(buffer_, length_);
+        expectedLength_ = length_ >= 4 ? MBusProtocol::expectedFrameLength(buffer_, length_) : 0;
+        if (expectedLength_ > sizeof(buffer_)) {
+          length_ = 0;
+          expectedLength_ = 0;
+        }
+        continue;
+      }
+    }
+
+    if (expectedLength_ > 0 && length_ >= expectedLength_) break;
   }
 
   if (expectedLength_ > 0 && length_ >= expectedLength_) {
@@ -86,6 +128,8 @@ void MBusReader::loop() {
     stats_.timeouts++;
     stats_.lastError = MBusProtocol::Error::Empty;
     Logger::error("M-Bus timeout");
+    length_ = 0;
+    expectedLength_ = 0;
     state_ = State::Idle;
     nextPollAt_ = now + Config::pollIntervalMs;
   }

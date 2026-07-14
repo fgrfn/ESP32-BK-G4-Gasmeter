@@ -12,6 +12,15 @@ int main() {
   assert(CoreLogic::calculateFlowM3h(100.0f, 101.0f, 1, 25.0f) == 0.0f);
   assert(CoreLogic::isValidHostname("esp32-gasmeter"));
   assert(!CoreLogic::isValidHostname("bad host"));
+
+  assert(CoreLogic::isValidIsoDate("1970-01-01"));
+  assert(CoreLogic::isValidIsoDate("2024-02-29"));
+  assert(!CoreLogic::isValidIsoDate("2023-02-29"));
+  assert(!CoreLogic::isValidIsoDate("2026-13-01"));
+  assert(!CoreLogic::isValidIsoDate("2026-00-10"));
+  assert(!CoreLogic::isValidIsoDate("2026-04-31"));
+  assert(!CoreLogic::isValidIsoDate("26-07-14"));
+
   char id[32];
   CoreLogic::makeSafeId("Gas Meter #1", id, sizeof(id));
   assert(std::strcmp(id, "gas_meter_1") == 0);

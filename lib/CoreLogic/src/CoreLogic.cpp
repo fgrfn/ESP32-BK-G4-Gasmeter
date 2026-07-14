@@ -6,6 +6,10 @@
 namespace {
 constexpr uint32_t kMinPollMs = 10000;
 constexpr uint32_t kMaxPollMs = 3600000;
+
+bool isLeapYear(int year) {
+  return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+}
 }
 
 uint32_t CoreLogic::clampPollIntervalMs(uint32_t value) {
@@ -32,6 +36,24 @@ bool CoreLogic::isValidHostname(const char* value) {
     if (!(std::isalnum(c) || c == '-')) return false;
   }
   return true;
+}
+
+bool CoreLogic::isValidIsoDate(const char* value) {
+  if (!value || std::strlen(value) != 10 || value[4] != '-' || value[7] != '-') return false;
+  for (size_t i = 0; i < 10; ++i) {
+    if (i == 4 || i == 7) continue;
+    if (!std::isdigit(static_cast<unsigned char>(value[i]))) return false;
+  }
+
+  const int year = (value[0] - '0') * 1000 + (value[1] - '0') * 100 + (value[2] - '0') * 10 + (value[3] - '0');
+  const int month = (value[5] - '0') * 10 + (value[6] - '0');
+  const int day = (value[8] - '0') * 10 + (value[9] - '0');
+  if (year < 1970 || month < 1 || month > 12 || day < 1) return false;
+
+  static constexpr uint8_t daysPerMonth[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+  int maxDay = daysPerMonth[month - 1];
+  if (month == 2 && isLeapYear(year)) maxDay = 29;
+  return day <= maxDay;
 }
 
 void CoreLogic::makeSafeId(const char* input, char* output, size_t outputSize) {

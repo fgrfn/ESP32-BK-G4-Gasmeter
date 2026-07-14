@@ -1,6 +1,7 @@
 #include "Config.h"
 #include <WiFi.h>
 #include <esp_system.h>
+#include <cstring>
 #include <time.h>
 #include "CoreLogic.h"
 #include "Logger.h"
@@ -37,8 +38,45 @@ TariffPeriod Config::tariffs[4];
 uint8_t Config::tariffCount = 1;
 
 namespace {
+struct ConfigSnapshot {
+  char ssid[33];
+  char wifiPassword[65];
+  char hostname[64];
+  bool staticIpEnabled;
+  char staticIp[16];
+  char gateway[16];
+  char subnet[16];
+  char dns[16];
+  char mqttHost[65];
+  uint16_t mqttPort;
+  char mqttUser[65];
+  char mqttPassword[65];
+  char mqttBaseTopic[65];
+  bool mqttTls;
+  bool mqttTlsInsecure;
+  String mqttCaCert;
+  bool mqttCommandsEnabled;
+  char webUser[33];
+  char webPassword[65];
+  char otaPassword[65];
+  uint32_t pollIntervalMs;
+  float calorificValue;
+  float correctionFactor;
+  float meterOffsetM3;
+  float maxFlowM3h;
+  char timezone[65];
+  TariffPeriod tariffs[4];
+  uint8_t tariffCount;
+};
+
 void copyJsonString(JsonVariantConst value, char* target, size_t targetSize) {
   if (value.is<const char*>()) strlcpy(target, value.as<const char*>(), targetSize);
+}
+
+void copyJsonSecret(JsonVariantConst value, char* target, size_t targetSize) {
+  if (!value.is<const char*>()) return;
+  const char* secret = value.as<const char*>();
+  if (secret && secret[0]) strlcpy(target, secret, targetSize);
 }
 
 void randomSecret(char* out, size_t size) {
@@ -49,14 +87,89 @@ void randomSecret(char* out, size_t size) {
 }
 
 bool parseDate(const char* value, time_t& result) {
-  if (!value || strlen(value) != 10) return false;
+  if (!CoreLogic::isValidIsoDate(value)) return false;
+  int year = 0;
+  int month = 0;
+  int day = 0;
+  if (sscanf(value, "%d-%d-%d", &year, &month, &day) != 3) return false;
   struct tm tmValue = {};
-  if (sscanf(value, "%d-%d-%d", &tmValue.tm_year, &tmValue.tm_mon, &tmValue.tm_mday) != 3) return false;
-  tmValue.tm_year -= 1900;
-  tmValue.tm_mon -= 1;
+  tmValue.tm_year = year - 1900;
+  tmValue.tm_mon = month - 1;
+  tmValue.tm_mday = day;
   tmValue.tm_isdst = -1;
   result = mktime(&tmValue);
-  return result > 0;
+  return true;
+}
+
+ConfigSnapshot captureConfig() {
+  ConfigSnapshot snapshot = {};
+  strlcpy(snapshot.ssid, Config::ssid, sizeof(snapshot.ssid));
+  strlcpy(snapshot.wifiPassword, Config::wifiPassword, sizeof(snapshot.wifiPassword));
+  strlcpy(snapshot.hostname, Config::hostname, sizeof(snapshot.hostname));
+  snapshot.staticIpEnabled = Config::staticIpEnabled;
+  strlcpy(snapshot.staticIp, Config::staticIp, sizeof(snapshot.staticIp));
+  strlcpy(snapshot.gateway, Config::gateway, sizeof(snapshot.gateway));
+  strlcpy(snapshot.subnet, Config::subnet, sizeof(snapshot.subnet));
+  strlcpy(snapshot.dns, Config::dns, sizeof(snapshot.dns));
+  strlcpy(snapshot.mqttHost, Config::mqttHost, sizeof(snapshot.mqttHost));
+  snapshot.mqttPort = Config::mqttPort;
+  strlcpy(snapshot.mqttUser, Config::mqttUser, sizeof(snapshot.mqttUser));
+  strlcpy(snapshot.mqttPassword, Config::mqttPassword, sizeof(snapshot.mqttPassword));
+  strlcpy(snapshot.mqttBaseTopic, Config::mqttBaseTopic, sizeof(snapshot.mqttBaseTopic));
+  snapshot.mqttTls = Config::mqttTls;
+  snapshot.mqttTlsInsecure = Config::mqttTlsInsecure;
+  snapshot.mqttCaCert = Config::mqttCaCert;
+  snapshot.mqttCommandsEnabled = Config::mqttCommandsEnabled;
+  strlcpy(snapshot.webUser, Config::webUser, sizeof(snapshot.webUser));
+  strlcpy(snapshot.webPassword, Config::webPassword, sizeof(snapshot.webPassword));
+  strlcpy(snapshot.otaPassword, Config::otaPassword, sizeof(snapshot.otaPassword));
+  snapshot.pollIntervalMs = Config::pollIntervalMs;
+  snapshot.calorificValue = Config::calorificValue;
+  snapshot.correctionFactor = Config::correctionFactor;
+  snapshot.meterOffsetM3 = Config::meterOffsetM3;
+  snapshot.maxFlowM3h = Config::maxFlowM3h;
+  strlcpy(snapshot.timezone, Config::timezone, sizeof(snapshot.timezone));
+  snapshot.tariffCount = Config::tariffCount;
+  for (uint8_t i = 0; i < 4; ++i) snapshot.tariffs[i] = Config::tariffs[i];
+  return snapshot;
+}
+
+void restoreConfig(const ConfigSnapshot& snapshot) {
+  strlcpy(Config::ssid, snapshot.ssid, sizeof(Config::ssid));
+  strlcpy(Config::wifiPassword, snapshot.wifiPassword, sizeof(Config::wifiPassword));
+  strlcpy(Config::hostname, snapshot.hostname, sizeof(Config::hostname));
+  Config::staticIpEnabled = snapshot.staticIpEnabled;
+  strlcpy(Config::staticIp, snapshot.staticIp, sizeof(Config::staticIp));
+  strlcpy(Config::gateway, snapshot.gateway, sizeof(Config::gateway));
+  strlcpy(Config::subnet, snapshot.subnet, sizeof(Config::subnet));
+  strlcpy(Config::dns, snapshot.dns, sizeof(Config::dns));
+  strlcpy(Config::mqttHost, snapshot.mqttHost, sizeof(Config::mqttHost));
+  Config::mqttPort = snapshot.mqttPort;
+  strlcpy(Config::mqttUser, snapshot.mqttUser, sizeof(Config::mqttUser));
+  strlcpy(Config::mqttPassword, snapshot.mqttPassword, sizeof(Config::mqttPassword));
+  strlcpy(Config::mqttBaseTopic, snapshot.mqttBaseTopic, sizeof(Config::mqttBaseTopic));
+  Config::mqttTls = snapshot.mqttTls;
+  Config::mqttTlsInsecure = snapshot.mqttTlsInsecure;
+  Config::mqttCaCert = snapshot.mqttCaCert;
+  Config::mqttCommandsEnabled = snapshot.mqttCommandsEnabled;
+  strlcpy(Config::webUser, snapshot.webUser, sizeof(Config::webUser));
+  strlcpy(Config::webPassword, snapshot.webPassword, sizeof(Config::webPassword));
+  strlcpy(Config::otaPassword, snapshot.otaPassword, sizeof(Config::otaPassword));
+  Config::pollIntervalMs = snapshot.pollIntervalMs;
+  Config::calorificValue = snapshot.calorificValue;
+  Config::correctionFactor = snapshot.correctionFactor;
+  Config::meterOffsetM3 = snapshot.meterOffsetM3;
+  Config::maxFlowM3h = snapshot.maxFlowM3h;
+  strlcpy(Config::timezone, snapshot.timezone, sizeof(Config::timezone));
+  Config::tariffCount = snapshot.tariffCount;
+  for (uint8_t i = 0; i < 4; ++i) Config::tariffs[i] = snapshot.tariffs[i];
+}
+
+void clearNamespace(const char* name) {
+  Preferences preferences;
+  if (!preferences.begin(name, false)) return;
+  preferences.clear();
+  preferences.end();
 }
 }
 
@@ -109,9 +222,7 @@ void Config::ensureSecrets() {
 }
 
 void Config::migrate(uint32_t fromSchema) {
-  if (fromSchema < 2) {
-    pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
-  }
+  if (fromSchema < 2) pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
   if (fromSchema < 3) {
     if (tariffCount == 0) tariffCount = 1;
     if (tariffs[0].validFrom[0] == '\0') strlcpy(tariffs[0].validFrom, "1970-01-01", sizeof(tariffs[0].validFrom));
@@ -164,7 +275,6 @@ bool Config::load() {
     }
   }
 
-  // Import legacy namespace once when upgrading from the previous firmware.
   if (schema == 0 && ssid[0] == '\0' && preferences_.begin("gas-config", true)) {
     preferences_.getString("ssid", ssid, sizeof(ssid));
     preferences_.getString("password", wifiPassword, sizeof(wifiPassword));
@@ -187,7 +297,11 @@ bool Config::load() {
   pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
   String error;
   if (!validate(error)) {
-    Logger::error("Config invalid: " + error);
+    Logger::error("Config invalid, loading safe defaults: " + error);
+    setDefaults();
+    generateDeviceIdentity();
+    ensureSecrets();
+    save();
     return false;
   }
   save();
@@ -201,6 +315,7 @@ bool Config::save() {
     Logger::error("Config not saved: " + error);
     return false;
   }
+
   JsonDocument tariffDoc;
   JsonArray array = tariffDoc.to<JsonArray>();
   for (uint8_t i = 0; i < tariffCount; ++i) {
@@ -254,6 +369,8 @@ bool Config::validIpv4(const char* value) {
 bool Config::validate(String& error) {
   pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
   if (!CoreLogic::isValidHostname(hostname)) { error = "invalid hostname"; return false; }
+  if (webUser[0] == '\0') { error = "invalid web user"; return false; }
+  if (timezone[0] == '\0') { error = "invalid timezone"; return false; }
   if (mqttPort == 0) { error = "invalid MQTT port"; return false; }
   if (calorificValue < 5.0f || calorificValue > 20.0f) { error = "invalid calorific value"; return false; }
   if (correctionFactor < 0.5f || correctionFactor > 1.5f) { error = "invalid correction factor"; return false; }
@@ -264,7 +381,7 @@ bool Config::validate(String& error) {
   }
   if (tariffCount == 0 || tariffCount > 4) { error = "invalid tariff count"; return false; }
   for (uint8_t i = 0; i < tariffCount; ++i) {
-    time_t parsed;
+    time_t parsed = 0;
     if (!parseDate(tariffs[i].validFrom, parsed)) { error = "invalid tariff date"; return false; }
     if (tariffs[i].workPricePerKwh < 0 || tariffs[i].workPricePerKwh > 5 || tariffs[i].basePriceMonthly < 0 || tariffs[i].basePriceMonthly > 1000) {
       error = "invalid tariff price";
@@ -276,9 +393,11 @@ bool Config::validate(String& error) {
 
 bool Config::importJson(JsonVariantConst root, String& error) {
   if (!root.is<JsonObjectConst>()) { error = "root must be an object"; return false; }
-  JsonObjectConst wifi = root["wifi"];
+  const ConfigSnapshot previous = captureConfig();
+
+  JsonObjectConst wifi = root["wifi"].as<JsonObjectConst>();
   copyJsonString(wifi["ssid"], ssid, sizeof(ssid));
-  copyJsonString(wifi["password"], wifiPassword, sizeof(wifiPassword));
+  copyJsonSecret(wifi["password"], wifiPassword, sizeof(wifiPassword));
   copyJsonString(wifi["hostname"], hostname, sizeof(hostname));
   staticIpEnabled = wifi["static_ip_enabled"] | staticIpEnabled;
   copyJsonString(wifi["static_ip"], staticIp, sizeof(staticIp));
@@ -286,32 +405,35 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   copyJsonString(wifi["subnet"], subnet, sizeof(subnet));
   copyJsonString(wifi["dns"], dns, sizeof(dns));
 
-  JsonObjectConst mqtt = root["mqtt"];
+  JsonObjectConst mqtt = root["mqtt"].as<JsonObjectConst>();
   copyJsonString(mqtt["host"], mqttHost, sizeof(mqttHost));
   mqttPort = mqtt["port"] | mqttPort;
   copyJsonString(mqtt["user"], mqttUser, sizeof(mqttUser));
-  copyJsonString(mqtt["password"], mqttPassword, sizeof(mqttPassword));
+  copyJsonSecret(mqtt["password"], mqttPassword, sizeof(mqttPassword));
   copyJsonString(mqtt["base_topic"], mqttBaseTopic, sizeof(mqttBaseTopic));
   mqttTls = mqtt["tls"] | mqttTls;
   mqttTlsInsecure = mqtt["tls_insecure"] | mqttTlsInsecure;
   mqttCommandsEnabled = mqtt["commands_enabled"] | mqttCommandsEnabled;
-  if (mqtt["ca_cert"].is<const char*>()) mqttCaCert = mqtt["ca_cert"].as<const char*>();
+  if (mqtt["ca_cert"].is<const char*>()) {
+    const char* certificate = mqtt["ca_cert"].as<const char*>();
+    if (certificate && certificate[0]) mqttCaCert = certificate;
+  }
 
-  JsonObjectConst gas = root["gas"];
+  JsonObjectConst gas = root["gas"].as<JsonObjectConst>();
   pollIntervalMs = (gas["poll_interval_seconds"] | (pollIntervalMs / 1000UL)) * 1000UL;
   calorificValue = gas["calorific_value"] | calorificValue;
   correctionFactor = gas["correction_factor"] | correctionFactor;
   meterOffsetM3 = gas["meter_offset_m3"] | meterOffsetM3;
   maxFlowM3h = gas["max_flow_m3h"] | maxFlowM3h;
 
-  JsonObjectConst security = root["security"];
+  JsonObjectConst security = root["security"].as<JsonObjectConst>();
   copyJsonString(security["web_user"], webUser, sizeof(webUser));
-  copyJsonString(security["web_password"], webPassword, sizeof(webPassword));
-  copyJsonString(security["ota_password"], otaPassword, sizeof(otaPassword));
+  copyJsonSecret(security["web_password"], webPassword, sizeof(webPassword));
+  copyJsonSecret(security["ota_password"], otaPassword, sizeof(otaPassword));
   copyJsonString(root["timezone"], timezone, sizeof(timezone));
 
   if (root["tariffs"].is<JsonArrayConst>()) {
-    JsonArrayConst values = root["tariffs"];
+    JsonArrayConst values = root["tariffs"].as<JsonArrayConst>();
     tariffCount = static_cast<uint8_t>(values.size() < 4 ? values.size() : 4);
     for (uint8_t i = 0; i < tariffCount; ++i) {
       copyJsonString(values[i]["valid_from"], tariffs[i].validFrom, sizeof(tariffs[i].validFrom));
@@ -319,8 +441,18 @@ bool Config::importJson(JsonVariantConst root, String& error) {
       tariffs[i].basePriceMonthly = values[i]["base_price_monthly"] | tariffs[i].basePriceMonthly;
     }
   }
+
   ensureSecrets();
-  return validate(error);
+  if (!validate(error)) {
+    restoreConfig(previous);
+    return false;
+  }
+  if (!save()) {
+    restoreConfig(previous);
+    error = "save failed";
+    return false;
+  }
+  return true;
 }
 
 void Config::toJson(JsonObject root, bool includeSecrets) {
@@ -346,8 +478,7 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
   mqtt["tls"] = mqttTls;
   mqtt["tls_insecure"] = mqttTlsInsecure;
   mqtt["commands_enabled"] = mqttCommandsEnabled;
-  if (includeSecrets) mqtt["ca_cert"] = mqttCaCert;
-  else mqtt["ca_cert"] = "";
+  mqtt["ca_cert"] = includeSecrets ? mqttCaCert : "";
   JsonObject gas = root["gas"].to<JsonObject>();
   gas["poll_interval_seconds"] = pollIntervalMs / 1000UL;
   gas["calorific_value"] = calorificValue;
@@ -370,21 +501,21 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
 const TariffPeriod& Config::activeTariff(time_t now) {
   uint8_t selected = 0;
   time_t selectedTime = 0;
+  bool selectedFound = false;
   for (uint8_t i = 0; i < tariffCount; ++i) {
-    time_t candidate;
-    if (parseDate(tariffs[i].validFrom, candidate) && candidate <= now && candidate >= selectedTime) {
+    time_t candidate = 0;
+    if (parseDate(tariffs[i].validFrom, candidate) && candidate <= now && (!selectedFound || candidate >= selectedTime)) {
       selected = i;
       selectedTime = candidate;
+      selectedFound = true;
     }
   }
   return tariffs[selected];
 }
 
 void Config::factoryReset() {
-  preferences_.begin("gasmeter", false);
-  preferences_.clear();
-  preferences_.end();
-  preferences_.begin("gas-config", false);
-  preferences_.clear();
-  preferences_.end();
+  clearNamespace("gasmeter");
+  clearNamespace("gas-config");
+  clearNamespace("usage");
+  clearNamespace("system");
 }
