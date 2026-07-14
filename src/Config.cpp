@@ -2,7 +2,6 @@
 #include <WiFi.h>
 #include <esp_system.h>
 #include <cstring>
-#include <time.h>
 #include "CoreLogic.h"
 #include "Logger.h"
 
@@ -19,7 +18,7 @@ char Config::mqttHost[65] = "";
 uint16_t Config::mqttPort = 1883;
 char Config::mqttUser[65] = "";
 char Config::mqttPassword[65] = "";
-char Config::mqttBaseTopic[65] = "gasmeter";
+char Config::mqttBaseTopic[65] = "";
 bool Config::mqttTls = false;
 bool Config::mqttTlsInsecure = false;
 String Config::mqttCaCert;
@@ -33,9 +32,9 @@ float Config::calorificValue = Constants::DEFAULT_CALORIFIC_VALUE;
 float Config::correctionFactor = Constants::DEFAULT_CORRECTION_FACTOR;
 float Config::meterOffsetM3 = 0.0f;
 float Config::maxFlowM3h = Constants::DEFAULT_MAX_FLOW_M3H;
+float Config::continuousFlowThresholdM3h = Constants::DEFAULT_CONTINUOUS_FLOW_THRESHOLD_M3H;
+uint32_t Config::continuousFlowAlertMinutes = Constants::DEFAULT_CONTINUOUS_FLOW_ALERT_MINUTES;
 char Config::timezone[65] = "CET-1CEST,M3.5.0,M10.5.0/3";
-TariffPeriod Config::tariffs[4];
-uint8_t Config::tariffCount = 1;
 
 namespace {
 struct ConfigSnapshot {
@@ -64,9 +63,9 @@ struct ConfigSnapshot {
   float correctionFactor;
   float meterOffsetM3;
   float maxFlowM3h;
+  float continuousFlowThresholdM3h;
+  uint32_t continuousFlowAlertMinutes;
   char timezone[65];
-  TariffPeriod tariffs[4];
-  uint8_t tariffCount;
 };
 
 void copyJsonString(JsonVariantConst value, char* target, size_t targetSize) {
@@ -84,21 +83,6 @@ void randomSecret(char* out, size_t size) {
   if (size < 2) return;
   for (size_t i = 0; i < size - 1; ++i) out[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
   out[size - 1] = '\0';
-}
-
-bool parseDate(const char* value, time_t& result) {
-  if (!CoreLogic::isValidIsoDate(value)) return false;
-  int year = 0;
-  int month = 0;
-  int day = 0;
-  if (sscanf(value, "%d-%d-%d", &year, &month, &day) != 3) return false;
-  struct tm tmValue = {};
-  tmValue.tm_year = year - 1900;
-  tmValue.tm_mon = month - 1;
-  tmValue.tm_mday = day;
-  tmValue.tm_isdst = -1;
-  result = mktime(&tmValue);
-  return true;
 }
 
 ConfigSnapshot captureConfig() {
@@ -128,9 +112,9 @@ ConfigSnapshot captureConfig() {
   snapshot.correctionFactor = Config::correctionFactor;
   snapshot.meterOffsetM3 = Config::meterOffsetM3;
   snapshot.maxFlowM3h = Config::maxFlowM3h;
+  snapshot.continuousFlowThresholdM3h = Config::continuousFlowThresholdM3h;
+  snapshot.continuousFlowAlertMinutes = Config::continuousFlowAlertMinutes;
   strlcpy(snapshot.timezone, Config::timezone, sizeof(snapshot.timezone));
-  snapshot.tariffCount = Config::tariffCount;
-  for (uint8_t i = 0; i < 4; ++i) snapshot.tariffs[i] = Config::tariffs[i];
   return snapshot;
 }
 
@@ -160,9 +144,9 @@ void restoreConfig(const ConfigSnapshot& snapshot) {
   Config::correctionFactor = snapshot.correctionFactor;
   Config::meterOffsetM3 = snapshot.meterOffsetM3;
   Config::maxFlowM3h = snapshot.maxFlowM3h;
+  Config::continuousFlowThresholdM3h = snapshot.continuousFlowThresholdM3h;
+  Config::continuousFlowAlertMinutes = snapshot.continuousFlowAlertMinutes;
   strlcpy(Config::timezone, snapshot.timezone, sizeof(Config::timezone));
-  Config::tariffCount = snapshot.tariffCount;
-  for (uint8_t i = 0; i < 4; ++i) Config::tariffs[i] = snapshot.tariffs[i];
 }
 
 void clearNamespace(const char* name) {
@@ -186,7 +170,7 @@ void Config::setDefaults() {
   mqttPort = 1883;
   mqttUser[0] = '\0';
   mqttPassword[0] = '\0';
-  strlcpy(mqttBaseTopic, Constants::DEFAULT_MQTT_TOPIC, sizeof(mqttBaseTopic));
+  mqttBaseTopic[0] = '\0';
   mqttTls = false;
   mqttTlsInsecure = false;
   mqttCaCert = "";
@@ -199,15 +183,15 @@ void Config::setDefaults() {
   correctionFactor = Constants::DEFAULT_CORRECTION_FACTOR;
   meterOffsetM3 = 0.0f;
   maxFlowM3h = Constants::DEFAULT_MAX_FLOW_M3H;
+  continuousFlowThresholdM3h = Constants::DEFAULT_CONTINUOUS_FLOW_THRESHOLD_M3H;
+  continuousFlowAlertMinutes = Constants::DEFAULT_CONTINUOUS_FLOW_ALERT_MINUTES;
   strlcpy(timezone, Constants::DEFAULT_TIMEZONE, sizeof(timezone));
-  tariffCount = 1;
-  tariffs[0] = TariffPeriod{};
-  for (uint8_t i = 1; i < 4; ++i) tariffs[i] = TariffPeriod{};
 }
 
 void Config::begin() {
   setDefaults();
   generateDeviceIdentity();
+  ensureDefaultMqttTopic();
 }
 
 void Config::generateDeviceIdentity() {
@@ -216,16 +200,21 @@ void Config::generateDeviceIdentity() {
   snprintf(deviceId, sizeof(deviceId), "esp32_gas_%02x%02x%02x", mac[3], mac[4], mac[5]);
 }
 
+void Config::ensureDefaultMqttTopic() {
+  if (mqttBaseTopic[0] != '\0') return;
+  snprintf(mqttBaseTopic, sizeof(mqttBaseTopic), "%s/%s", Constants::DEFAULT_MQTT_TOPIC_PREFIX, deviceId);
+}
+
 void Config::ensureSecrets() {
   if (webPassword[0] == '\0') randomSecret(webPassword, 17);
   if (otaPassword[0] == '\0') randomSecret(otaPassword, 17);
 }
 
 void Config::migrate(uint32_t fromSchema) {
-  if (fromSchema < 2) pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
-  if (fromSchema < 3) {
-    if (tariffCount == 0) tariffCount = 1;
-    if (tariffs[0].validFrom[0] == '\0') strlcpy(tariffs[0].validFrom, "1970-01-01", sizeof(tariffs[0].validFrom));
+  pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
+  if (fromSchema < 4 && (mqttBaseTopic[0] == '\0' || strcmp(mqttBaseTopic, "gasmeter") == 0)) {
+    mqttBaseTopic[0] = '\0';
+    ensureDefaultMqttTopic();
   }
 }
 
@@ -257,23 +246,10 @@ bool Config::load() {
   correctionFactor = preferences_.getFloat("correction", Constants::DEFAULT_CORRECTION_FACTOR);
   meterOffsetM3 = preferences_.getFloat("meter_offset", 0.0f);
   maxFlowM3h = preferences_.getFloat("max_flow", Constants::DEFAULT_MAX_FLOW_M3H);
+  continuousFlowThresholdM3h = preferences_.getFloat("flow_alert", Constants::DEFAULT_CONTINUOUS_FLOW_THRESHOLD_M3H);
+  continuousFlowAlertMinutes = preferences_.getULong("flow_alert_min", Constants::DEFAULT_CONTINUOUS_FLOW_ALERT_MINUTES);
   preferences_.getString("timezone", timezone, sizeof(timezone));
-  tariffCount = preferences_.getUChar("tariff_count", 1);
-  const String tariffJson = preferences_.getString("tariffs", "");
   preferences_.end();
-
-  if (!tariffJson.isEmpty()) {
-    JsonDocument doc;
-    if (!deserializeJson(doc, tariffJson)) {
-      JsonArrayConst items = doc.as<JsonArrayConst>();
-      tariffCount = static_cast<uint8_t>(items.size() < 4 ? items.size() : 4);
-      for (uint8_t i = 0; i < tariffCount; ++i) {
-        copyJsonString(items[i]["valid_from"], tariffs[i].validFrom, sizeof(tariffs[i].validFrom));
-        tariffs[i].workPricePerKwh = items[i]["work_price_per_kwh"] | 0.12f;
-        tariffs[i].basePriceMonthly = items[i]["base_price_monthly"] | 10.0f;
-      }
-    }
-  }
 
   if (schema == 0 && ssid[0] == '\0' && preferences_.begin("gas-config", true)) {
     preferences_.getString("ssid", ssid, sizeof(ssid));
@@ -287,19 +263,18 @@ bool Config::load() {
     pollIntervalMs = preferences_.getULong("poll_interval", Constants::DEFAULT_POLL_INTERVAL_MS);
     calorificValue = preferences_.getFloat("gas_calorific", Constants::DEFAULT_CALORIFIC_VALUE);
     correctionFactor = preferences_.getFloat("gas_correction", Constants::DEFAULT_CORRECTION_FACTOR);
-    tariffs[0].basePriceMonthly = preferences_.getFloat("gas_base_price", 10.0f);
-    tariffs[0].workPricePerKwh = preferences_.getFloat("gas_work_price", 0.12f);
     preferences_.end();
   }
 
   migrate(schema);
+  ensureDefaultMqttTopic();
   ensureSecrets();
-  pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
   String error;
   if (!validate(error)) {
     Logger::error("Config invalid, loading safe defaults: " + error);
     setDefaults();
     generateDeviceIdentity();
+    ensureDefaultMqttTopic();
     ensureSecrets();
     save();
     return false;
@@ -309,23 +284,13 @@ bool Config::load() {
 }
 
 bool Config::save() {
+  ensureDefaultMqttTopic();
   ensureSecrets();
   String error;
   if (!validate(error)) {
     Logger::error("Config not saved: " + error);
     return false;
   }
-
-  JsonDocument tariffDoc;
-  JsonArray array = tariffDoc.to<JsonArray>();
-  for (uint8_t i = 0; i < tariffCount; ++i) {
-    JsonObject item = array.add<JsonObject>();
-    item["valid_from"] = tariffs[i].validFrom;
-    item["work_price_per_kwh"] = tariffs[i].workPricePerKwh;
-    item["base_price_monthly"] = tariffs[i].basePriceMonthly;
-  }
-  String tariffJson;
-  serializeJson(tariffDoc, tariffJson);
 
   if (!preferences_.begin("gasmeter", false)) return false;
   preferences_.putUInt("schema", CONFIG_SCHEMA_VERSION);
@@ -354,9 +319,11 @@ bool Config::save() {
   preferences_.putFloat("correction", correctionFactor);
   preferences_.putFloat("meter_offset", meterOffsetM3);
   preferences_.putFloat("max_flow", maxFlowM3h);
+  preferences_.putFloat("flow_alert", continuousFlowThresholdM3h);
+  preferences_.putULong("flow_alert_min", continuousFlowAlertMinutes);
   preferences_.putString("timezone", timezone);
-  preferences_.putUChar("tariff_count", tariffCount);
-  preferences_.putString("tariffs", tariffJson);
+  preferences_.remove("tariff_count");
+  preferences_.remove("tariffs");
   preferences_.end();
   return true;
 }
@@ -369,24 +336,18 @@ bool Config::validIpv4(const char* value) {
 bool Config::validate(String& error) {
   pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
   if (!CoreLogic::isValidHostname(hostname)) { error = "invalid hostname"; return false; }
+  if (!CoreLogic::isValidMqttBaseTopic(mqttBaseTopic)) { error = "invalid MQTT base topic"; return false; }
   if (webUser[0] == '\0') { error = "invalid web user"; return false; }
   if (timezone[0] == '\0') { error = "invalid timezone"; return false; }
   if (mqttPort == 0) { error = "invalid MQTT port"; return false; }
   if (calorificValue < 5.0f || calorificValue > 20.0f) { error = "invalid calorific value"; return false; }
   if (correctionFactor < 0.5f || correctionFactor > 1.5f) { error = "invalid correction factor"; return false; }
   if (maxFlowM3h <= 0.0f || maxFlowM3h > 100.0f) { error = "invalid max flow"; return false; }
+  if (continuousFlowThresholdM3h < 0.0f || continuousFlowThresholdM3h > maxFlowM3h) { error = "invalid continuous flow threshold"; return false; }
+  if (continuousFlowAlertMinutes > 10080UL) { error = "invalid continuous flow duration"; return false; }
   if (staticIpEnabled && (!validIpv4(staticIp) || !validIpv4(gateway) || !validIpv4(subnet) || !validIpv4(dns))) {
     error = "invalid static IPv4 settings";
     return false;
-  }
-  if (tariffCount == 0 || tariffCount > 4) { error = "invalid tariff count"; return false; }
-  for (uint8_t i = 0; i < tariffCount; ++i) {
-    time_t parsed = 0;
-    if (!parseDate(tariffs[i].validFrom, parsed)) { error = "invalid tariff date"; return false; }
-    if (tariffs[i].workPricePerKwh < 0 || tariffs[i].workPricePerKwh > 5 || tariffs[i].basePriceMonthly < 0 || tariffs[i].basePriceMonthly > 1000) {
-      error = "invalid tariff price";
-      return false;
-    }
   }
   return true;
 }
@@ -425,6 +386,8 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   correctionFactor = gas["correction_factor"] | correctionFactor;
   meterOffsetM3 = gas["meter_offset_m3"] | meterOffsetM3;
   maxFlowM3h = gas["max_flow_m3h"] | maxFlowM3h;
+  continuousFlowThresholdM3h = gas["continuous_flow_threshold_m3h"] | continuousFlowThresholdM3h;
+  continuousFlowAlertMinutes = gas["continuous_flow_alert_minutes"] | continuousFlowAlertMinutes;
 
   JsonObjectConst security = root["security"].as<JsonObjectConst>();
   copyJsonString(security["web_user"], webUser, sizeof(webUser));
@@ -432,16 +395,7 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   copyJsonSecret(security["ota_password"], otaPassword, sizeof(otaPassword));
   copyJsonString(root["timezone"], timezone, sizeof(timezone));
 
-  if (root["tariffs"].is<JsonArrayConst>()) {
-    JsonArrayConst values = root["tariffs"].as<JsonArrayConst>();
-    tariffCount = static_cast<uint8_t>(values.size() < 4 ? values.size() : 4);
-    for (uint8_t i = 0; i < tariffCount; ++i) {
-      copyJsonString(values[i]["valid_from"], tariffs[i].validFrom, sizeof(tariffs[i].validFrom));
-      tariffs[i].workPricePerKwh = values[i]["work_price_per_kwh"] | tariffs[i].workPricePerKwh;
-      tariffs[i].basePriceMonthly = values[i]["base_price_monthly"] | tariffs[i].basePriceMonthly;
-    }
-  }
-
+  ensureDefaultMqttTopic();
   ensureSecrets();
   if (!validate(error)) {
     restoreConfig(previous);
@@ -460,6 +414,7 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
   root["firmware_version"] = FIRMWARE_VERSION;
   root["device_id"] = deviceId;
   root["timezone"] = timezone;
+
   JsonObject wifi = root["wifi"].to<JsonObject>();
   wifi["ssid"] = ssid;
   wifi["password"] = includeSecrets ? wifiPassword : "";
@@ -469,6 +424,7 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
   wifi["gateway"] = gateway;
   wifi["subnet"] = subnet;
   wifi["dns"] = dns;
+
   JsonObject mqtt = root["mqtt"].to<JsonObject>();
   mqtt["host"] = mqttHost;
   mqtt["port"] = mqttPort;
@@ -479,38 +435,26 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
   mqtt["tls_insecure"] = mqttTlsInsecure;
   mqtt["commands_enabled"] = mqttCommandsEnabled;
   mqtt["ca_cert"] = includeSecrets ? mqttCaCert : "";
+
   JsonObject gas = root["gas"].to<JsonObject>();
   gas["poll_interval_seconds"] = pollIntervalMs / 1000UL;
   gas["calorific_value"] = calorificValue;
   gas["correction_factor"] = correctionFactor;
   gas["meter_offset_m3"] = meterOffsetM3;
   gas["max_flow_m3h"] = maxFlowM3h;
+  gas["continuous_flow_threshold_m3h"] = continuousFlowThresholdM3h;
+  gas["continuous_flow_alert_minutes"] = continuousFlowAlertMinutes;
+
   JsonObject security = root["security"].to<JsonObject>();
   security["web_user"] = webUser;
   security["web_password"] = includeSecrets ? webPassword : "";
   security["ota_password"] = includeSecrets ? otaPassword : "";
-  JsonArray tariffArray = root["tariffs"].to<JsonArray>();
-  for (uint8_t i = 0; i < tariffCount; ++i) {
-    JsonObject item = tariffArray.add<JsonObject>();
-    item["valid_from"] = tariffs[i].validFrom;
-    item["work_price_per_kwh"] = tariffs[i].workPricePerKwh;
-    item["base_price_monthly"] = tariffs[i].basePriceMonthly;
-  }
-}
 
-const TariffPeriod& Config::activeTariff(time_t now) {
-  uint8_t selected = 0;
-  time_t selectedTime = 0;
-  bool selectedFound = false;
-  for (uint8_t i = 0; i < tariffCount; ++i) {
-    time_t candidate = 0;
-    if (parseDate(tariffs[i].validFrom, candidate) && candidate <= now && (!selectedFound || candidate >= selectedTime)) {
-      selected = i;
-      selectedTime = candidate;
-      selectedFound = true;
-    }
-  }
-  return tariffs[selected];
+  JsonObject hardware = root["hardware"].to<JsonObject>();
+  hardware["mbus_rx_pin"] = Constants::MBUS_RX_PIN;
+  hardware["mbus_tx_pin"] = Constants::MBUS_TX_PIN;
+  hardware["status_led_pin"] = Constants::STATUS_LED_PIN;
+  hardware["reset_button_pin"] = Constants::RESET_BUTTON_PIN;
 }
 
 void Config::factoryReset() {

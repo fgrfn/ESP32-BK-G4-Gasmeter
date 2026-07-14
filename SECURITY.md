@@ -8,12 +8,12 @@ This firmware is intended for a trusted home/IoT network. The WebUI uses HTTP Di
 
 - Setup AP SSID includes a device suffix.
 - Setup AP password is randomly generated on every setup-AP start and printed only to serial.
-- WebUI and OTA passwords are randomly generated, persisted in NVS and printed to serial during boot.
+- WebUI and ArduinoOTA passwords are randomly generated, persisted in NVS and printed to serial during boot.
 - Sensitive endpoints require authentication outside setup AP.
 - Factory reset never allows the setup-AP authentication bypass and additionally requires the literal confirmation `RESET`.
 - API configuration responses contain empty password/CA fields.
 - Config export omits secrets by default. Secrets are included only with `?secrets=EXPORT` after authentication.
-- OTA may optionally require an `X-MD5` integrity value; production authenticity should use Secure Boot V2.
+- The browser firmware-upload endpoint is intentionally not present.
 
 ## MQTT TLS
 
@@ -21,17 +21,25 @@ Enable `mqtt.tls` and provide a CA certificate in PEM format. `tls_insecure` exi
 
 For a private Mosquitto CA, paste the CA certificate, not the broker private key. The broker hostname must match the certificate SAN/CN.
 
+MQTT command entities can restart the device and change measurement settings. Enable them only when broker access is restricted appropriately.
+
+## ArduinoOTA
+
+ArduinoOTA is available only after the device connects to Wi-Fi and requires the configured OTA password. ArduinoOTA password authentication does not replace network isolation or signed firmware verification. Prefer a management VLAN/VPN and do not expose ArduinoOTA ports to untrusted networks.
+
 ## Signed OTA / Secure Boot
 
 The release workflow can create an app signed with ESP Secure Boot V2 when `ESP_SIGNING_KEY` is stored as an encrypted repository secret. No signing key belongs in the repository.
 
 Secure Boot and Flash Encryption must be provisioned carefully on each physical ESP32. They can make recovery difficult or irreversible depending on eFuse settings. Follow the Espressif documentation for the exact chip revision and back up all required keys before burning eFuses.
 
-A signed release alone is not sufficient: the device bootloader must be configured to verify the signature. Without Secure Boot, SHA-256 and MD5 files provide integrity checking but not authenticity.
+A signed release alone is not sufficient: the device bootloader must be configured to verify the signature. Without Secure Boot, SHA-256 files provide integrity checking but not authenticity.
+
+A pending ESP-IDF OTA image is accepted only after runtime health checks. Safe mode never marks a pending image valid.
 
 ## NVS credentials
 
-Wi-Fi, MQTT, WebUI and OTA credentials are stored in NVS. For stronger at-rest protection, provision ESP32 Flash Encryption/NVS Encryption. The firmware does not pretend that ordinary Preferences storage is encrypted.
+Wi-Fi, MQTT, WebUI and ArduinoOTA credentials are stored in NVS. For stronger at-rest protection, provision ESP32 Flash Encryption/NVS Encryption. Ordinary Preferences storage is not encrypted by this firmware.
 
 ## Reporting
 
