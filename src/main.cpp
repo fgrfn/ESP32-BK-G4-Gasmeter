@@ -103,8 +103,7 @@ void loop() {
     MBusReader::loop();
   }
 
-  const bool mbusHealthy = MBusReader::stats().successful > 0;
-  BootGuard::loop(WiFiManager::connected(), TimeManager::synchronized(), mbusHealthy);
+  BootGuard::loop(WiFiManager::connected(), TimeManager::synchronized(), MBusReader::healthy());
   updateLed();
   delay(2);
 }
