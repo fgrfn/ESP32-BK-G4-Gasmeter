@@ -8,12 +8,16 @@ This firmware is intended for a trusted home/IoT network. The WebUI uses HTTP Di
 
 - Setup AP SSID includes a device suffix.
 - Setup AP password is randomly generated on every setup-AP start and printed only to serial.
-- WebUI and ArduinoOTA passwords are randomly generated, persisted in NVS and printed to serial during boot.
+- Initial WebUI credentials are `admin` / `admin` and must be changed under **Configuration → Security** after commissioning.
+- WebUI username and password changes are persisted in NVS and survive normal restarts and OTA updates.
+- ArduinoOTA uses a separately generated password that is persisted in NVS and printed to serial during boot.
 - Sensitive endpoints require authentication outside setup AP.
 - Factory reset never allows the setup-AP authentication bypass and additionally requires the literal confirmation `RESET`.
 - API configuration responses contain empty password/CA fields.
 - Config export omits secrets by default. Secrets are included only with `?secrets=EXPORT` after authentication.
 - The browser firmware-upload endpoint is intentionally not present.
+
+The predictable initial WebUI credentials are intended only to simplify local commissioning. Do not leave them unchanged, expose the WebUI to the Internet or permit access from untrusted VLANs.
 
 ## MQTT TLS
 
