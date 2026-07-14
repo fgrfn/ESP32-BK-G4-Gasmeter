@@ -84,6 +84,13 @@ jobs:
         run: |
           set -o pipefail
           pio check -e esp32dev --fail-on-defect high 2>&1 | tee check.log
+      - name: Upload analysis report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: static-analysis-${{ github.sha }}
+          path: check.log
+          retention-days: 7
       - name: Report analysis failure
         if: failure() && github.event_name == 'pull_request'
         uses: actions/github-script@v7
