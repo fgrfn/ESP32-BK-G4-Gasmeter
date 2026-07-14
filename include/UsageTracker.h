@@ -35,6 +35,10 @@ class UsageTracker {
   static float dayBaseline_;
   static float monthBaseline_;
   static float yearBaseline_;
+  static float cumulativeEnergyKwh_;
+  static float dayVariableCost_;
+  static float monthVariableCost_;
+  static float yearVariableCost_;
   static char dayKey_[11];
   static char monthKey_[8];
   static char yearKey_[5];
