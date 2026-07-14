@@ -21,7 +21,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
       - run: pip install "platformio==6.1.18"
       - run: pio test -e native
 
@@ -35,7 +34,6 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
       - run: pip install "platformio==6.1.18"
       - name: Build ${{ matrix.environment }}
         run: pio run -e ${{ matrix.environment }}
@@ -62,6 +60,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          cache: pip
       - run: pip install "platformio==6.1.18"
       - run: pio check -e esp32dev --fail-on-defect high
