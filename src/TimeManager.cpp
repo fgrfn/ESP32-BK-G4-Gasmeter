@@ -9,7 +9,7 @@ bool TimeManager::synchronized_ = false;
 time_t TimeManager::lastSyncEpoch_ = 0;
 
 void TimeManager::begin() {
-  if (!WiFi.isConnected()) return;
+  if (WiFi.status() != WL_CONNECTED) return;
   configTzTime(Config::timezone, Constants::NTP_SERVER_1, Constants::NTP_SERVER_2);
   Logger::info("NTP synchronization started");
 }
