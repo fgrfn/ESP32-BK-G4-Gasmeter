@@ -1,131 +1,94 @@
 #include "MBusReader.h"
+#include "Config.h"
 #include "Logger.h"
 
-// Static member initialization
-HardwareSerial MBusReader::serial(1);
-MBusState MBusReader::state = MBUS_IDLE;
-unsigned long MBusReader::lastActionTime = 0;
-uint8_t MBusReader::buffer[MBUS_BUFFER_SIZE];
-size_t MBusReader::bufferLen = 0;
-MBusStats MBusReader::stats;
+HardwareSerial MBusReader::serial_(1);
+MBusReader::State MBusReader::state_ = MBusReader::State::Idle;
+uint8_t MBusReader::buffer_[Constants::MBUS_BUFFER_SIZE] = {};
+size_t MBusReader::length_ = 0;
+size_t MBusReader::expectedLength_ = 0;
+uint32_t MBusReader::sentAt_ = 0;
+uint32_t MBusReader::nextPollAt_ = 0;
+uint64_t MBusReader::totalResponseMs_ = 0;
+MBusStats MBusReader::stats_;
+MBusReader::ReadingCallback MBusReader::callback_;
 
-void MBusReader::init() {
-  serial.begin(MBUS_BAUD, SERIAL_8E1, MBUS_RX_PIN, MBUS_TX_PIN);
-  Serial.println("M-Bus UART bereit");
-  state = MBUS_IDLE;
-  bufferLen = 0;
-  resetStats();
+void MBusReader::begin(ReadingCallback callback) {
+  callback_ = callback;
+  serial_.begin(Constants::MBUS_BAUD, SERIAL_8E1, Constants::MBUS_RX_PIN, Constants::MBUS_TX_PIN);
+  nextPollAt_ = millis() + 1000;
+  Logger::info("M-Bus UART initialized");
 }
 
-void MBusReader::resetStats() {
-  stats.totalPolls = 0;
-  stats.successfulPolls = 0;
-  stats.totalResponseTime = 0;
-  stats.lastResponseTime = 0;
-  stats.avgResponseTime = 0;
-  stats.lastHexDump = "";
+void MBusReader::sendPoll() {
+  static const uint8_t frame[] = {0x10, 0x5B, 0x00, 0x5B, 0x16};
+  while (serial_.available()) serial_.read();
+  serial_.write(frame, sizeof(frame));
+  serial_.flush();
+  length_ = 0;
+  expectedLength_ = 0;
+  sentAt_ = millis();
+  state_ = State::Waiting;
+  stats_.polls++;
 }
 
-void MBusReader::sendPollFrame() {
-  uint8_t pollFrame[5] = {0x10, 0x5B, 0x00, 0x5B, 0x16};
-  serial.write(pollFrame, sizeof(pollFrame));
-  serial.flush();
-  bufferLen = 0;
-  lastActionTime = millis();
-  state = MBUS_WAIT_RESPONSE;
-  Serial.println("MBUS Poll gesendet, warte auf Antwort...");
-  Logger::addLog("M-Bus: Poll gestartet");
+bool MBusReader::trigger() {
+  if (state_ != State::Idle) return false;
+  sendPoll();
+  return true;
 }
 
-void MBusReader::readResponse() {
-  while (serial.available() && bufferLen < MBUS_BUFFER_SIZE) {
-    buffer[bufferLen++] = serial.read();
+void MBusReader::finishFrame() {
+  stats_.lastResponseMs = millis() - sentAt_;
+  totalResponseMs_ += stats_.lastResponseMs;
+  stats_.averageResponseMs = stats_.polls ? static_cast<uint32_t>(totalResponseMs_ / stats_.polls) : 0;
+  stats_.lastHexDump = "";
+  const size_t dumpLength = length_ < 64 ? length_ : 64;
+  for (size_t i = 0; i < dumpLength; ++i) {
+    char part[4];
+    snprintf(part, sizeof(part), "%02X ", buffer_[i]);
+    stats_.lastHexDump += part;
   }
-}
 
-String MBusReader::createHexDump() {
-  String hexDump = "";
-  for (size_t i = 0; i < min(bufferLen, (size_t)32); i++) {
-    char hex[4];
-    sprintf(hex, "%02X ", buffer[i]);
-    hexDump += hex;
+  const MBusProtocol::Result result = MBusProtocol::parseVolume(buffer_, length_);
+  stats_.lastError = result.error;
+  if (result.valid) {
+    stats_.successful++;
+    Logger::info("M-Bus volume: " + String(result.volumeM3, 3) + " m3");
+    if (callback_) callback_(static_cast<float>(result.volumeM3));
+  } else {
+    stats_.parseErrors++;
+    if (result.error == MBusProtocol::Error::ChecksumMismatch) stats_.checksumErrors++;
+    Logger::error("M-Bus parse error: " + String(MBusProtocol::errorToString(result.error)));
   }
-  if (bufferLen > 32) hexDump += "...";
-  return hexDump;
+  state_ = State::Idle;
+  nextPollAt_ = millis() + Config::pollIntervalMs;
 }
 
-void MBusReader::poll() {
-  unsigned long now = millis();
-  
-  // Nur im IDLE-State pollen
-  if (state == MBUS_IDLE) {
-    sendPollFrame();
-  }
-}
-
-void MBusReader::processResponse(float& volume, bool& success) {
-  unsigned long now = millis();
-  success = false;
-  volume = -1.0;
-  
-  if (state != MBUS_WAIT_RESPONSE) {
+void MBusReader::loop() {
+  const uint32_t now = millis();
+  if (state_ == State::Idle) {
+    if (static_cast<int32_t>(now - nextPollAt_) >= 0) sendPoll();
     return;
   }
-  
-  // Response lesen
-  readResponse();
-  
-  // Timeout oder Buffer voll?
-  if ((now - lastActionTime >= MBUS_RESPONSE_TIMEOUT) || bufferLen >= MBUS_BUFFER_SIZE) {
-    stats.totalPolls++;
-    stats.lastResponseTime = now - lastActionTime;
-    stats.totalResponseTime += stats.lastResponseTime;
-    
-    if (bufferLen > 0) {
-      char msg[80];
-      snprintf(msg, sizeof(msg), "M-Bus: Antwort erhalten (%u Bytes, %lums)", 
-               bufferLen, stats.lastResponseTime);
-      Serial.println(msg);
-      Logger::addLog(msg);
-      
-      // Hex Dump speichern
-      stats.lastHexDump = createHexDump();
-      String hexLog = stats.lastHexDump;
-      Logger::addLog("M-Bus: Rohdaten - " + hexLog);
-      
-      // Volume parsen
-      volume = parseGasVolumeBCD(buffer, bufferLen);
-      
-      if (volume >= 0) {
-        stats.successfulPolls++;
-        stats.avgResponseTime = stats.totalPolls > 0 ? 
-          (stats.totalResponseTime / stats.totalPolls) : 0;
-        success = true;
-      } else {
-        Serial.println("Kein Volumenwert gefunden!");
-      }
-    } else {
-      Serial.println("Keine MBUS Antwort erhalten");
-    }
-    
-    state = MBUS_IDLE;
+
+  while (serial_.available() && length_ < sizeof(buffer_)) {
+    buffer_[length_++] = static_cast<uint8_t>(serial_.read());
+    if (expectedLength_ == 0) expectedLength_ = MBusProtocol::expectedFrameLength(buffer_, length_);
+  }
+
+  if (expectedLength_ > 0 && length_ >= expectedLength_) {
+    finishFrame();
+    return;
+  }
+  if (now - sentAt_ >= Constants::MBUS_RESPONSE_TIMEOUT_MS) {
+    stats_.lastResponseMs = now - sentAt_;
+    stats_.timeouts++;
+    stats_.lastError = MBusProtocol::Error::Empty;
+    Logger::error("M-Bus timeout");
+    state_ = State::Idle;
+    nextPollAt_ = now + Config::pollIntervalMs;
   }
 }
 
-float MBusReader::parseGasVolumeBCD(const uint8_t* data, size_t len) {
-  for (size_t i = 0; i + 5 < len; i++) {
-    if (data[i] == 0x0C && data[i+1] == 0x13) { // DIF=0x0C, VIF=0x13
-      uint32_t value = 0;
-      uint32_t factor = 1;
-      for (int b = 0; b < 4; b++) {
-        uint8_t byte = data[i+2+b];
-        uint8_t lsn = byte & 0x0F;
-        uint8_t msn = (byte >> 4) & 0x0F;
-        value += lsn * factor; factor *= 10;
-        value += msn * factor; factor *= 10;
-      }
-      return value / 1000.0; // 2 Dezimalstellen m³
-    }
-  }
-  return -1; // nicht gefunden
-}
+const MBusStats& MBusReader::stats() { return stats_; }

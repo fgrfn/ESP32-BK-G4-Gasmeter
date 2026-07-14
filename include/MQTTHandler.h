@@ -1,58 +1,41 @@
-#ifndef MQTT_HANDLER_H
-#define MQTT_HANDLER_H
+#pragma once
 
 #include <Arduino.h>
 #include <PubSubClient.h>
-#include <WiFi.h>
-#include "constants.h"
+#include <WiFiClient.h>
+#include <WiFiClientSecure.h>
+#include "UsageTracker.h"
 
-// ==========================================
-// ERROR STATISTICS
-// ==========================================
-struct ErrorStats {
-  unsigned long mbusTimeouts = 0;
-  unsigned long mbusParseErrors = 0;
-  unsigned long mqttErrors = 0;
-  unsigned long wifiDisconnects = 0;
-  unsigned long lastError = 0;
-  char lastErrorMsg[ERROR_MSG_MAX_LEN] = "";
-};
-
-// ==========================================
-// MQTT HANDLER CLASS
-// ==========================================
 class MQTTHandler {
-public:
-  static void init(WiFiClient& wifiClient);
-  static bool connect();
+ public:
+  static void begin();
   static void loop();
-  static bool isConnected();
-  
-  static bool publishVolume(float volume);
-  static bool publishEnergy(float energy);
-  static bool publishFlow(float flow);
-  static bool publishBrennwert(float value);
-  static bool publishZZahl(float value);
-  static bool publishWiFiSignal(int rssi);
-  static bool publishMBusRate(float rate);
-  
-  static void sendHomeAssistantDiscovery();
-  static bool hasDiscoveryBeenSent() { return haDiscoverySent; }
-  
-  static ErrorStats& getErrorStats() { return errorStats; }
-  static void resetErrorStats();
-  static void logError(const char* msg);
-  
-private:
-  static PubSubClient* client;
-  static bool haDiscoverySent;
-  static ErrorStats errorStats;
-  
-  static void sendDiscoverySensor(const char* name, const char* deviceClass, 
-                                   const char* unit, const char* topic,
-                                   const char* stateClass = nullptr);
-  static void sendDiscoveryBinarySensor(const char* name, const char* deviceClass, 
-                                        const char* topic);
-};
+  static bool connected();
+  static void publishReading(const UsageSnapshot& usage);
+  static void publishDiagnostics();
+  static uint32_t reconnectCount();
+  static uint32_t publishErrors();
 
-#endif // MQTT_HANDLER_H
+ private:
+  static bool connect();
+  static void configureTransport();
+  static void sendDiscovery();
+  static void sendSensorDiscovery(const char* objectId, const char* name, const char* stateTopic,
+                                  const char* unit, const char* deviceClass, const char* stateClass,
+                                  bool diagnostic = false);
+  static void sendBinaryDiscovery(const char* objectId, const char* name, const char* stateTopic);
+  static void sendNumberDiscovery(const char* objectId, const char* name, const char* stateTopic,
+                                  const char* commandTopic, float minValue, float maxValue, float step,
+                                  const char* unit);
+  static void callback(char* topic, uint8_t* payload, unsigned int length);
+  static String topic(const char* suffix);
+  static WiFiClient plainClient_;
+  static WiFiClientSecure secureClient_;
+  static PubSubClient client_;
+  static uint32_t nextReconnectAt_;
+  static uint32_t reconnectDelayMs_;
+  static uint32_t reconnectCount_;
+  static uint32_t publishErrors_;
+  static bool discoverySent_;
+  static bool restartRequested_;
+};

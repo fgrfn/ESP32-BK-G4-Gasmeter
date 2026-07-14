@@ -1,62 +1,65 @@
-#ifndef CONFIG_H
-#define CONFIG_H
+#pragma once
 
 #include <Arduino.h>
+#include <ArduinoJson.h>
 #include <Preferences.h>
 #include "constants.h"
 
-// ==========================================
-// CONFIGURATION CLASS
-// ==========================================
-class Config {
-public:
-  // WiFi Configuration
-  static char ssid[SSID_MAX_LEN];
-  static char password[PASSWORD_MAX_LEN];
-  static char hostname[HOSTNAME_MAX_LEN];
-  static bool use_static_ip;
-  static char static_ip[IP_ADDRESS_MAX_LEN];
-  static char static_gateway[IP_ADDRESS_MAX_LEN];
-  static char static_subnet[IP_ADDRESS_MAX_LEN];
-  static char static_dns[IP_ADDRESS_MAX_LEN];
-  
-  // MQTT Configuration
-  static char mqtt_server[MQTT_SERVER_MAX_LEN];
-  static int mqtt_port;
-  static char mqtt_user[MQTT_USER_MAX_LEN];
-  static char mqtt_pass[MQTT_PASS_MAX_LEN];
-  static char mqtt_topic[MQTT_TOPIC_MAX_LEN];
-  static char mqtt_availability_topic[MQTT_TOPIC_MAX_LEN];
-  static char mqtt_client_id[MQTT_CLIENT_ID_MAX_LEN];
-  
-  // Gas Configuration
-  static unsigned long poll_interval;
-  static float gas_calorific_value;
-  static float gas_correction_factor;
-  
-  // Cost Configuration
-  static float gas_base_price_monthly;     // Grundpreis pro Monat in €
-  static float gas_work_price_per_kwh;     // Arbeitspreis pro kWh in €
-  
-  // Deep Sleep Configuration
-  static bool enable_deep_sleep;
-  static unsigned long deep_sleep_duration;
-  
-  // Methods
-  static void init();
-  static void load();
-  static void save();
-  static void setDefaults();
-  static void generateMqttClientId();
-  
-  // Backup & Restore
-  static String exportToJson(bool includePasswords = false);
-  static bool importFromJson(const String& json, String* errorMsg = nullptr);
-  static bool validateJson(const String& json, String* errorMsg = nullptr);
-  
-private:
-  static Preferences preferences;
-  static bool validatePollInterval();
+struct TariffPeriod {
+  char validFrom[11] = "1970-01-01";
+  float workPricePerKwh = 0.12f;
+  float basePriceMonthly = 10.0f;
 };
 
-#endif // CONFIG_H
+class Config {
+ public:
+  static void begin();
+  static bool load();
+  static bool save();
+  static void factoryReset();
+  static bool importJson(JsonVariantConst root, String& error);
+  static void toJson(JsonObject root, bool includeSecrets);
+  static bool validate(String& error);
+  static const TariffPeriod& activeTariff(time_t now);
+  static void generateDeviceIdentity();
+
+  static char ssid[33];
+  static char wifiPassword[65];
+  static char hostname[64];
+  static bool staticIpEnabled;
+  static char staticIp[16];
+  static char gateway[16];
+  static char subnet[16];
+  static char dns[16];
+
+  static char mqttHost[65];
+  static uint16_t mqttPort;
+  static char mqttUser[65];
+  static char mqttPassword[65];
+  static char mqttBaseTopic[65];
+  static bool mqttTls;
+  static bool mqttTlsInsecure;
+  static String mqttCaCert;
+  static bool mqttCommandsEnabled;
+
+  static char webUser[33];
+  static char webPassword[65];
+  static char otaPassword[65];
+  static char deviceId[33];
+
+  static uint32_t pollIntervalMs;
+  static float calorificValue;
+  static float correctionFactor;
+  static float meterOffsetM3;
+  static float maxFlowM3h;
+  static char timezone[65];
+  static TariffPeriod tariffs[4];
+  static uint8_t tariffCount;
+
+ private:
+  static Preferences preferences_;
+  static void setDefaults();
+  static void migrate(uint32_t fromSchema);
+  static void ensureSecrets();
+  static bool validIpv4(const char* value);
+};

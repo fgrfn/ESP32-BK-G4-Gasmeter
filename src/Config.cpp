@@ -1,413 +1,390 @@
 #include "Config.h"
-#include "Logger.h"
 #include <WiFi.h>
-#include <ArduinoJson.h>
+#include <esp_system.h>
+#include <time.h>
+#include "CoreLogic.h"
+#include "Logger.h"
 
-// Static member initialization
-char Config::ssid[SSID_MAX_LEN];
-char Config::password[PASSWORD_MAX_LEN];
-char Config::hostname[HOSTNAME_MAX_LEN];
-bool Config::use_static_ip = false;
-char Config::static_ip[IP_ADDRESS_MAX_LEN];
-char Config::static_gateway[IP_ADDRESS_MAX_LEN];
-char Config::static_subnet[IP_ADDRESS_MAX_LEN];
-char Config::static_dns[IP_ADDRESS_MAX_LEN];
+Preferences Config::preferences_;
+char Config::ssid[33] = "";
+char Config::wifiPassword[65] = "";
+char Config::hostname[64] = "";
+bool Config::staticIpEnabled = false;
+char Config::staticIp[16] = "192.168.1.100";
+char Config::gateway[16] = "192.168.1.1";
+char Config::subnet[16] = "255.255.255.0";
+char Config::dns[16] = "192.168.1.1";
+char Config::mqttHost[65] = "";
+uint16_t Config::mqttPort = 1883;
+char Config::mqttUser[65] = "";
+char Config::mqttPassword[65] = "";
+char Config::mqttBaseTopic[65] = "gasmeter";
+bool Config::mqttTls = false;
+bool Config::mqttTlsInsecure = false;
+String Config::mqttCaCert;
+bool Config::mqttCommandsEnabled = false;
+char Config::webUser[33] = "admin";
+char Config::webPassword[65] = "";
+char Config::otaPassword[65] = "";
+char Config::deviceId[33] = "";
+uint32_t Config::pollIntervalMs = Constants::DEFAULT_POLL_INTERVAL_MS;
+float Config::calorificValue = Constants::DEFAULT_CALORIFIC_VALUE;
+float Config::correctionFactor = Constants::DEFAULT_CORRECTION_FACTOR;
+float Config::meterOffsetM3 = 0.0f;
+float Config::maxFlowM3h = Constants::DEFAULT_MAX_FLOW_M3H;
+char Config::timezone[65] = "CET-1CEST,M3.5.0,M10.5.0/3";
+TariffPeriod Config::tariffs[4];
+uint8_t Config::tariffCount = 1;
 
-char Config::mqtt_server[MQTT_SERVER_MAX_LEN];
-int Config::mqtt_port = DEFAULT_MQTT_PORT;
-char Config::mqtt_user[MQTT_USER_MAX_LEN];
-char Config::mqtt_pass[MQTT_PASS_MAX_LEN];
-char Config::mqtt_topic[MQTT_TOPIC_MAX_LEN];
-char Config::mqtt_availability_topic[MQTT_TOPIC_MAX_LEN];
-char Config::mqtt_client_id[MQTT_CLIENT_ID_MAX_LEN];
+namespace {
+void copyJsonString(JsonVariantConst value, char* target, size_t targetSize) {
+  if (value.is<const char*>()) strlcpy(target, value.as<const char*>(), targetSize);
+}
 
-unsigned long Config::poll_interval = DEFAULT_POLL_INTERVAL;
-float Config::gas_calorific_value = DEFAULT_GAS_CALORIFIC;
-float Config::gas_correction_factor = DEFAULT_GAS_CORRECTION;
-float Config::gas_base_price_monthly = 10.0; // Default: 10€/Monat
-float Config::gas_work_price_per_kwh = 0.12; // Default: 0.12€/kWh
+void randomSecret(char* out, size_t size) {
+  static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  if (size < 2) return;
+  for (size_t i = 0; i < size - 1; ++i) out[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+  out[size - 1] = '\0';
+}
 
-bool Config::enable_deep_sleep = false;
-unsigned long Config::deep_sleep_duration = 300;
-
-Preferences Config::preferences;
-
-void Config::init() {
-  setDefaults();
+bool parseDate(const char* value, time_t& result) {
+  if (!value || strlen(value) != 10) return false;
+  struct tm tmValue = {};
+  if (sscanf(value, "%d-%d-%d", &tmValue.tm_year, &tmValue.tm_mon, &tmValue.tm_mday) != 3) return false;
+  tmValue.tm_year -= 1900;
+  tmValue.tm_mon -= 1;
+  tmValue.tm_isdst = -1;
+  result = mktime(&tmValue);
+  return result > 0;
+}
 }
 
 void Config::setDefaults() {
-  strcpy(ssid, DEFAULT_SSID);
-  strcpy(password, DEFAULT_PASSWORD);
-  strcpy(hostname, DEFAULT_HOSTNAME);
-  strcpy(mqtt_server, DEFAULT_MQTT_SERVER);
-  mqtt_port = DEFAULT_MQTT_PORT;
-  strcpy(mqtt_topic, DEFAULT_MQTT_TOPIC);
-  strcpy(mqtt_user, "");
-  strcpy(mqtt_pass, "");
-  poll_interval = DEFAULT_POLL_INTERVAL;
-  gas_calorific_value = DEFAULT_GAS_CALORIFIC;
-  gas_correction_factor = DEFAULT_GAS_CORRECTION;
-  gas_base_price_monthly = 10.0;
-  gas_work_price_per_kwh = 0.12;
-  use_static_ip = false;
-  strcpy(static_ip, DEFAULT_STATIC_IP);
-  strcpy(static_gateway, DEFAULT_GATEWAY);
-  strcpy(static_subnet, DEFAULT_SUBNET);
-  strcpy(static_dns, DEFAULT_DNS);
-  
-  // Availability Topic generieren
-  snprintf(mqtt_availability_topic, sizeof(mqtt_availability_topic), 
-           "%s_availability", mqtt_topic);
+  ssid[0] = '\0';
+  wifiPassword[0] = '\0';
+  strlcpy(hostname, Constants::DEFAULT_HOSTNAME, sizeof(hostname));
+  staticIpEnabled = false;
+  strlcpy(staticIp, "192.168.1.100", sizeof(staticIp));
+  strlcpy(gateway, "192.168.1.1", sizeof(gateway));
+  strlcpy(subnet, "255.255.255.0", sizeof(subnet));
+  strlcpy(dns, "192.168.1.1", sizeof(dns));
+  mqttHost[0] = '\0';
+  mqttPort = 1883;
+  mqttUser[0] = '\0';
+  mqttPassword[0] = '\0';
+  strlcpy(mqttBaseTopic, Constants::DEFAULT_MQTT_TOPIC, sizeof(mqttBaseTopic));
+  mqttTls = false;
+  mqttTlsInsecure = false;
+  mqttCaCert = "";
+  mqttCommandsEnabled = false;
+  strlcpy(webUser, "admin", sizeof(webUser));
+  webPassword[0] = '\0';
+  otaPassword[0] = '\0';
+  pollIntervalMs = Constants::DEFAULT_POLL_INTERVAL_MS;
+  calorificValue = Constants::DEFAULT_CALORIFIC_VALUE;
+  correctionFactor = Constants::DEFAULT_CORRECTION_FACTOR;
+  meterOffsetM3 = 0.0f;
+  maxFlowM3h = Constants::DEFAULT_MAX_FLOW_M3H;
+  strlcpy(timezone, Constants::DEFAULT_TIMEZONE, sizeof(timezone));
+  tariffCount = 1;
+  tariffs[0] = TariffPeriod{};
+  for (uint8_t i = 1; i < 4; ++i) tariffs[i] = TariffPeriod{};
 }
 
-void Config::load() {
-  if (!preferences.begin("gas-config", false)) {
-    Serial.println("ERROR: Konnte gas-config Namespace nicht oeffnen!");
-    return;
-  }
-  
-  bool configDone = preferences.getBool("config_done", false);
-  
-  preferences.getString("ssid", ssid, sizeof(ssid));
-  preferences.getString("password", password, sizeof(password));
-  preferences.getString("hostname", hostname, sizeof(hostname));
-  preferences.getString("mqtt_server", mqtt_server, sizeof(mqtt_server));
-  mqtt_port = preferences.getInt("mqtt_port", DEFAULT_MQTT_PORT);
-  preferences.getString("mqtt_user", mqtt_user, sizeof(mqtt_user));
-  preferences.getString("mqtt_pass", mqtt_pass, sizeof(mqtt_pass));
-  preferences.getString("mqtt_topic", mqtt_topic, sizeof(mqtt_topic));
-  poll_interval = preferences.getULong("poll_interval", DEFAULT_POLL_INTERVAL);
-  DEBUG_LOG("loadConfig: poll_interval aus Flash = " + String(poll_interval) + " ms");
-  gas_calorific_value = preferences.getFloat("gas_calorific", DEFAULT_GAS_CALORIFIC);
-  gas_correction_factor = preferences.getFloat("gas_correction", DEFAULT_GAS_CORRECTION);
-  gas_base_price_monthly = preferences.getFloat("gas_base_price", 10.0);
-  gas_work_price_per_kwh = preferences.getFloat("gas_work_price", 0.12);
-  use_static_ip = preferences.getBool("use_static_ip", false);
-  preferences.getString("static_ip", static_ip, sizeof(static_ip));
-  preferences.getString("static_gateway", static_gateway, sizeof(static_gateway));
-  preferences.getString("static_subnet", static_subnet, sizeof(static_subnet));
-  preferences.getString("static_dns", static_dns, sizeof(static_dns));
-  preferences.end();
-  
-  // Validierung
-  validatePollInterval();
-  
-  // Wenn noch nie konfiguriert oder SSID leer -> Defaults setzen
-  if (!configDone || strlen(ssid) == 0) {
-    Serial.println("Keine gueltige Konfiguration gefunden - verwende Defaults");
-    strcpy(ssid, DEFAULT_SSID);
-    strcpy(password, DEFAULT_PASSWORD);
-  }
-  
-  // Fallback auf Defaults wenn leer
-  if (strlen(hostname) == 0) strcpy(hostname, DEFAULT_HOSTNAME);
-  if (strlen(mqtt_server) == 0) strcpy(mqtt_server, DEFAULT_MQTT_SERVER);
-  if (strlen(mqtt_topic) == 0) strcpy(mqtt_topic, DEFAULT_MQTT_TOPIC);
-  
-  // Availability Topic generieren
-  snprintf(mqtt_availability_topic, sizeof(mqtt_availability_topic), 
-           "%s_availability", mqtt_topic);
+void Config::begin() {
+  setDefaults();
+  generateDeviceIdentity();
 }
 
-void Config::save() {
-  // Validierung vor dem Speichern
-  validatePollInterval();
-  
-  preferences.begin("gas-config", false);
-  preferences.putString("ssid", ssid);
-  preferences.putString("password", password);
-  preferences.putString("hostname", hostname);
-  preferences.putString("mqtt_server", mqtt_server);
-  preferences.putInt("mqtt_port", mqtt_port);
-  preferences.putString("mqtt_user", mqtt_user);
-  preferences.putString("mqtt_pass", mqtt_pass);
-  preferences.putString("mqtt_topic", mqtt_topic);
-  preferences.putULong("poll_interval", poll_interval);
-  unsigned long rb_after = preferences.getULong("poll_interval", 0);
-  preferences.putFloat("gas_calorific", gas_calorific_value);
-  preferences.putFloat("gas_correction", gas_correction_factor);
-  preferences.putFloat("gas_base_price", gas_base_price_monthly);
-  preferences.putFloat("gas_work_price", gas_work_price_per_kwh);
-  preferences.putBool("use_static_ip", use_static_ip);
-  preferences.putString("static_ip", static_ip);
-  preferences.putString("static_gateway", static_gateway);
-  preferences.putString("static_subnet", static_subnet);
-  preferences.putString("static_dns", static_dns);
-  preferences.putBool("config_done", true);
-  preferences.end();
-
-  Serial.println("Konfiguration gespeichert");
-  char msg[100];
-  snprintf(msg, sizeof(msg), "Poll-Intervall: %lus (%lums) saved_readback=%lu ms", 
-           poll_interval / 1000, poll_interval, rb_after);
-  Serial.println(msg);
-}
-
-bool Config::validatePollInterval() {
-  DEBUG_LOG("validatePollInterval: poll_interval vor Validierung = " + String(poll_interval) + " ms");
-  
-  if (poll_interval < MIN_POLL_INTERVAL) {
-    Serial.println("WARN: Ungueltiger poll_interval: " + String(poll_interval) + 
-                   " ms - setze auf Default " + String(DEFAULT_POLL_INTERVAL) + " ms");
-    poll_interval = DEFAULT_POLL_INTERVAL;
-    return false;
-  }
-  
-  if (poll_interval > MAX_POLL_INTERVAL) {
-    poll_interval = MAX_POLL_INTERVAL;
-    return false;
-  }
-  
-  DEBUG_LOG("validatePollInterval: poll_interval nach Validierung = " + String(poll_interval) + " ms");
-  return true;
-}
-
-void Config::generateMqttClientId() {
-  uint8_t mac[6];
+void Config::generateDeviceIdentity() {
+  uint8_t mac[6] = {};
   WiFi.macAddress(mac);
-  snprintf(mqtt_client_id, sizeof(mqtt_client_id), 
-           "ESP32Gas-%02X%02X%02X", mac[3], mac[4], mac[5]);
-  Serial.println("MQTT Client-ID: " + String(mqtt_client_id));
+  snprintf(deviceId, sizeof(deviceId), "esp32_gas_%02x%02x%02x", mac[3], mac[4], mac[5]);
 }
 
-// ==========================================
-// BACKUP & RESTORE FUNCTIONS
-// ==========================================
+void Config::ensureSecrets() {
+  if (webPassword[0] == '\0') randomSecret(webPassword, 17);
+  if (otaPassword[0] == '\0') randomSecret(otaPassword, 17);
+}
 
-String Config::exportToJson(bool includePasswords) {
-  JsonDocument doc;
-  
-  // Metadata
-  doc["version"] = "2.1.0";
-  doc["timestamp"] = millis() / 1000; // Unix timestamp (approximation)
-  doc["device"] = mqtt_client_id;
-  
-  // WiFi Configuration
-  JsonObject wifi = doc["wifi"].to<JsonObject>();
+void Config::migrate(uint32_t fromSchema) {
+  if (fromSchema < 2) {
+    pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
+  }
+  if (fromSchema < 3) {
+    if (tariffCount == 0) tariffCount = 1;
+    if (tariffs[0].validFrom[0] == '\0') strlcpy(tariffs[0].validFrom, "1970-01-01", sizeof(tariffs[0].validFrom));
+  }
+}
+
+bool Config::load() {
+  if (!preferences_.begin("gasmeter", false)) return false;
+  const uint32_t schema = preferences_.getUInt("schema", 0);
+  preferences_.getString("ssid", ssid, sizeof(ssid));
+  preferences_.getString("wifi_pass", wifiPassword, sizeof(wifiPassword));
+  preferences_.getString("hostname", hostname, sizeof(hostname));
+  staticIpEnabled = preferences_.getBool("static_ip_en", false);
+  preferences_.getString("static_ip", staticIp, sizeof(staticIp));
+  preferences_.getString("gateway", gateway, sizeof(gateway));
+  preferences_.getString("subnet", subnet, sizeof(subnet));
+  preferences_.getString("dns", dns, sizeof(dns));
+  preferences_.getString("mqtt_host", mqttHost, sizeof(mqttHost));
+  mqttPort = preferences_.getUShort("mqtt_port", 1883);
+  preferences_.getString("mqtt_user", mqttUser, sizeof(mqttUser));
+  preferences_.getString("mqtt_pass", mqttPassword, sizeof(mqttPassword));
+  preferences_.getString("mqtt_topic", mqttBaseTopic, sizeof(mqttBaseTopic));
+  mqttTls = preferences_.getBool("mqtt_tls", false);
+  mqttTlsInsecure = preferences_.getBool("mqtt_insec", false);
+  mqttCaCert = preferences_.getString("mqtt_ca", "");
+  mqttCommandsEnabled = preferences_.getBool("mqtt_cmd", false);
+  preferences_.getString("web_user", webUser, sizeof(webUser));
+  preferences_.getString("web_pass", webPassword, sizeof(webPassword));
+  preferences_.getString("ota_pass", otaPassword, sizeof(otaPassword));
+  pollIntervalMs = preferences_.getULong("poll_ms", Constants::DEFAULT_POLL_INTERVAL_MS);
+  calorificValue = preferences_.getFloat("calorific", Constants::DEFAULT_CALORIFIC_VALUE);
+  correctionFactor = preferences_.getFloat("correction", Constants::DEFAULT_CORRECTION_FACTOR);
+  meterOffsetM3 = preferences_.getFloat("meter_offset", 0.0f);
+  maxFlowM3h = preferences_.getFloat("max_flow", Constants::DEFAULT_MAX_FLOW_M3H);
+  preferences_.getString("timezone", timezone, sizeof(timezone));
+  tariffCount = preferences_.getUChar("tariff_count", 1);
+  const String tariffJson = preferences_.getString("tariffs", "");
+  preferences_.end();
+
+  if (!tariffJson.isEmpty()) {
+    JsonDocument doc;
+    if (!deserializeJson(doc, tariffJson)) {
+      JsonArrayConst items = doc.as<JsonArrayConst>();
+      tariffCount = static_cast<uint8_t>(items.size() < 4 ? items.size() : 4);
+      for (uint8_t i = 0; i < tariffCount; ++i) {
+        copyJsonString(items[i]["valid_from"], tariffs[i].validFrom, sizeof(tariffs[i].validFrom));
+        tariffs[i].workPricePerKwh = items[i]["work_price_per_kwh"] | 0.12f;
+        tariffs[i].basePriceMonthly = items[i]["base_price_monthly"] | 10.0f;
+      }
+    }
+  }
+
+  // Import legacy namespace once when upgrading from the previous firmware.
+  if (schema == 0 && ssid[0] == '\0' && preferences_.begin("gas-config", true)) {
+    preferences_.getString("ssid", ssid, sizeof(ssid));
+    preferences_.getString("password", wifiPassword, sizeof(wifiPassword));
+    preferences_.getString("hostname", hostname, sizeof(hostname));
+    preferences_.getString("mqtt_server", mqttHost, sizeof(mqttHost));
+    mqttPort = preferences_.getInt("mqtt_port", 1883);
+    preferences_.getString("mqtt_user", mqttUser, sizeof(mqttUser));
+    preferences_.getString("mqtt_pass", mqttPassword, sizeof(mqttPassword));
+    preferences_.getString("mqtt_topic", mqttBaseTopic, sizeof(mqttBaseTopic));
+    pollIntervalMs = preferences_.getULong("poll_interval", Constants::DEFAULT_POLL_INTERVAL_MS);
+    calorificValue = preferences_.getFloat("gas_calorific", Constants::DEFAULT_CALORIFIC_VALUE);
+    correctionFactor = preferences_.getFloat("gas_correction", Constants::DEFAULT_CORRECTION_FACTOR);
+    tariffs[0].basePriceMonthly = preferences_.getFloat("gas_base_price", 10.0f);
+    tariffs[0].workPricePerKwh = preferences_.getFloat("gas_work_price", 0.12f);
+    preferences_.end();
+  }
+
+  migrate(schema);
+  ensureSecrets();
+  pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
+  String error;
+  if (!validate(error)) {
+    Logger::error("Config invalid: " + error);
+    return false;
+  }
+  save();
+  return true;
+}
+
+bool Config::save() {
+  ensureSecrets();
+  String error;
+  if (!validate(error)) {
+    Logger::error("Config not saved: " + error);
+    return false;
+  }
+  JsonDocument tariffDoc;
+  JsonArray array = tariffDoc.to<JsonArray>();
+  for (uint8_t i = 0; i < tariffCount; ++i) {
+    JsonObject item = array.add<JsonObject>();
+    item["valid_from"] = tariffs[i].validFrom;
+    item["work_price_per_kwh"] = tariffs[i].workPricePerKwh;
+    item["base_price_monthly"] = tariffs[i].basePriceMonthly;
+  }
+  String tariffJson;
+  serializeJson(tariffDoc, tariffJson);
+
+  if (!preferences_.begin("gasmeter", false)) return false;
+  preferences_.putUInt("schema", CONFIG_SCHEMA_VERSION);
+  preferences_.putString("ssid", ssid);
+  preferences_.putString("wifi_pass", wifiPassword);
+  preferences_.putString("hostname", hostname);
+  preferences_.putBool("static_ip_en", staticIpEnabled);
+  preferences_.putString("static_ip", staticIp);
+  preferences_.putString("gateway", gateway);
+  preferences_.putString("subnet", subnet);
+  preferences_.putString("dns", dns);
+  preferences_.putString("mqtt_host", mqttHost);
+  preferences_.putUShort("mqtt_port", mqttPort);
+  preferences_.putString("mqtt_user", mqttUser);
+  preferences_.putString("mqtt_pass", mqttPassword);
+  preferences_.putString("mqtt_topic", mqttBaseTopic);
+  preferences_.putBool("mqtt_tls", mqttTls);
+  preferences_.putBool("mqtt_insec", mqttTlsInsecure);
+  preferences_.putString("mqtt_ca", mqttCaCert);
+  preferences_.putBool("mqtt_cmd", mqttCommandsEnabled);
+  preferences_.putString("web_user", webUser);
+  preferences_.putString("web_pass", webPassword);
+  preferences_.putString("ota_pass", otaPassword);
+  preferences_.putULong("poll_ms", pollIntervalMs);
+  preferences_.putFloat("calorific", calorificValue);
+  preferences_.putFloat("correction", correctionFactor);
+  preferences_.putFloat("meter_offset", meterOffsetM3);
+  preferences_.putFloat("max_flow", maxFlowM3h);
+  preferences_.putString("timezone", timezone);
+  preferences_.putUChar("tariff_count", tariffCount);
+  preferences_.putString("tariffs", tariffJson);
+  preferences_.end();
+  return true;
+}
+
+bool Config::validIpv4(const char* value) {
+  IPAddress address;
+  return address.fromString(value);
+}
+
+bool Config::validate(String& error) {
+  pollIntervalMs = CoreLogic::clampPollIntervalMs(pollIntervalMs);
+  if (!CoreLogic::isValidHostname(hostname)) { error = "invalid hostname"; return false; }
+  if (mqttPort == 0) { error = "invalid MQTT port"; return false; }
+  if (calorificValue < 5.0f || calorificValue > 20.0f) { error = "invalid calorific value"; return false; }
+  if (correctionFactor < 0.5f || correctionFactor > 1.5f) { error = "invalid correction factor"; return false; }
+  if (maxFlowM3h <= 0.0f || maxFlowM3h > 100.0f) { error = "invalid max flow"; return false; }
+  if (staticIpEnabled && (!validIpv4(staticIp) || !validIpv4(gateway) || !validIpv4(subnet) || !validIpv4(dns))) {
+    error = "invalid static IPv4 settings";
+    return false;
+  }
+  if (tariffCount == 0 || tariffCount > 4) { error = "invalid tariff count"; return false; }
+  for (uint8_t i = 0; i < tariffCount; ++i) {
+    time_t parsed;
+    if (!parseDate(tariffs[i].validFrom, parsed)) { error = "invalid tariff date"; return false; }
+    if (tariffs[i].workPricePerKwh < 0 || tariffs[i].workPricePerKwh > 5 || tariffs[i].basePriceMonthly < 0 || tariffs[i].basePriceMonthly > 1000) {
+      error = "invalid tariff price";
+      return false;
+    }
+  }
+  return true;
+}
+
+bool Config::importJson(JsonVariantConst root, String& error) {
+  if (!root.is<JsonObjectConst>()) { error = "root must be an object"; return false; }
+  JsonObjectConst wifi = root["wifi"];
+  copyJsonString(wifi["ssid"], ssid, sizeof(ssid));
+  copyJsonString(wifi["password"], wifiPassword, sizeof(wifiPassword));
+  copyJsonString(wifi["hostname"], hostname, sizeof(hostname));
+  staticIpEnabled = wifi["static_ip_enabled"] | staticIpEnabled;
+  copyJsonString(wifi["static_ip"], staticIp, sizeof(staticIp));
+  copyJsonString(wifi["gateway"], gateway, sizeof(gateway));
+  copyJsonString(wifi["subnet"], subnet, sizeof(subnet));
+  copyJsonString(wifi["dns"], dns, sizeof(dns));
+
+  JsonObjectConst mqtt = root["mqtt"];
+  copyJsonString(mqtt["host"], mqttHost, sizeof(mqttHost));
+  mqttPort = mqtt["port"] | mqttPort;
+  copyJsonString(mqtt["user"], mqttUser, sizeof(mqttUser));
+  copyJsonString(mqtt["password"], mqttPassword, sizeof(mqttPassword));
+  copyJsonString(mqtt["base_topic"], mqttBaseTopic, sizeof(mqttBaseTopic));
+  mqttTls = mqtt["tls"] | mqttTls;
+  mqttTlsInsecure = mqtt["tls_insecure"] | mqttTlsInsecure;
+  mqttCommandsEnabled = mqtt["commands_enabled"] | mqttCommandsEnabled;
+  if (mqtt["ca_cert"].is<const char*>()) mqttCaCert = mqtt["ca_cert"].as<const char*>();
+
+  JsonObjectConst gas = root["gas"];
+  pollIntervalMs = (gas["poll_interval_seconds"] | (pollIntervalMs / 1000UL)) * 1000UL;
+  calorificValue = gas["calorific_value"] | calorificValue;
+  correctionFactor = gas["correction_factor"] | correctionFactor;
+  meterOffsetM3 = gas["meter_offset_m3"] | meterOffsetM3;
+  maxFlowM3h = gas["max_flow_m3h"] | maxFlowM3h;
+
+  JsonObjectConst security = root["security"];
+  copyJsonString(security["web_user"], webUser, sizeof(webUser));
+  copyJsonString(security["web_password"], webPassword, sizeof(webPassword));
+  copyJsonString(security["ota_password"], otaPassword, sizeof(otaPassword));
+  copyJsonString(root["timezone"], timezone, sizeof(timezone));
+
+  if (root["tariffs"].is<JsonArrayConst>()) {
+    JsonArrayConst values = root["tariffs"];
+    tariffCount = static_cast<uint8_t>(values.size() < 4 ? values.size() : 4);
+    for (uint8_t i = 0; i < tariffCount; ++i) {
+      copyJsonString(values[i]["valid_from"], tariffs[i].validFrom, sizeof(tariffs[i].validFrom));
+      tariffs[i].workPricePerKwh = values[i]["work_price_per_kwh"] | tariffs[i].workPricePerKwh;
+      tariffs[i].basePriceMonthly = values[i]["base_price_monthly"] | tariffs[i].basePriceMonthly;
+    }
+  }
+  ensureSecrets();
+  return validate(error);
+}
+
+void Config::toJson(JsonObject root, bool includeSecrets) {
+  root["schema_version"] = CONFIG_SCHEMA_VERSION;
+  root["firmware_version"] = FIRMWARE_VERSION;
+  root["device_id"] = deviceId;
+  root["timezone"] = timezone;
+  JsonObject wifi = root["wifi"].to<JsonObject>();
   wifi["ssid"] = ssid;
-  wifi["password"] = includePasswords ? password : "***NOT_EXPORTED***";
+  wifi["password"] = includeSecrets ? wifiPassword : "";
   wifi["hostname"] = hostname;
-  wifi["use_static_ip"] = use_static_ip;
-  wifi["static_ip"] = static_ip;
-  wifi["static_gateway"] = static_gateway;
-  wifi["static_subnet"] = static_subnet;
-  wifi["static_dns"] = static_dns;
-  
-  // MQTT Configuration
-  JsonObject mqtt = doc["mqtt"].to<JsonObject>();
-  mqtt["server"] = mqtt_server;
-  mqtt["port"] = mqtt_port;
-  mqtt["user"] = mqtt_user;
-  mqtt["password"] = includePasswords ? mqtt_pass : "***NOT_EXPORTED***";
-  mqtt["topic"] = mqtt_topic;
-  
-  // Gas Configuration
-  JsonObject gas = doc["gas"].to<JsonObject>();
-  gas["calorific_value"] = gas_calorific_value;
-  gas["correction_factor"] = gas_correction_factor;
-  gas["poll_interval_seconds"] = poll_interval / 1000;
-  gas["base_price_monthly"] = gas_base_price_monthly;
-  gas["work_price_per_kwh"] = gas_work_price_per_kwh;
-  
-  // Deep Sleep (optional)
-  JsonObject sleep = doc["deep_sleep"].to<JsonObject>();
-  sleep["enabled"] = enable_deep_sleep;
-  sleep["duration_seconds"] = deep_sleep_duration;
-  
-  String output;
-  serializeJsonPretty(doc, output);
-  return output;
+  wifi["static_ip_enabled"] = staticIpEnabled;
+  wifi["static_ip"] = staticIp;
+  wifi["gateway"] = gateway;
+  wifi["subnet"] = subnet;
+  wifi["dns"] = dns;
+  JsonObject mqtt = root["mqtt"].to<JsonObject>();
+  mqtt["host"] = mqttHost;
+  mqtt["port"] = mqttPort;
+  mqtt["user"] = mqttUser;
+  mqtt["password"] = includeSecrets ? mqttPassword : "";
+  mqtt["base_topic"] = mqttBaseTopic;
+  mqtt["tls"] = mqttTls;
+  mqtt["tls_insecure"] = mqttTlsInsecure;
+  mqtt["commands_enabled"] = mqttCommandsEnabled;
+  if (includeSecrets) mqtt["ca_cert"] = mqttCaCert;
+  else mqtt["ca_cert"] = "";
+  JsonObject gas = root["gas"].to<JsonObject>();
+  gas["poll_interval_seconds"] = pollIntervalMs / 1000UL;
+  gas["calorific_value"] = calorificValue;
+  gas["correction_factor"] = correctionFactor;
+  gas["meter_offset_m3"] = meterOffsetM3;
+  gas["max_flow_m3h"] = maxFlowM3h;
+  JsonObject security = root["security"].to<JsonObject>();
+  security["web_user"] = webUser;
+  security["web_password"] = includeSecrets ? webPassword : "";
+  security["ota_password"] = includeSecrets ? otaPassword : "";
+  JsonArray tariffArray = root["tariffs"].to<JsonArray>();
+  for (uint8_t i = 0; i < tariffCount; ++i) {
+    JsonObject item = tariffArray.add<JsonObject>();
+    item["valid_from"] = tariffs[i].validFrom;
+    item["work_price_per_kwh"] = tariffs[i].workPricePerKwh;
+    item["base_price_monthly"] = tariffs[i].basePriceMonthly;
+  }
 }
 
-bool Config::importFromJson(const String& json, String* errorMsg) {
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, json);
-  
-  if (error) {
-    if (errorMsg) *errorMsg = "JSON Parse Error: " + String(error.c_str());
-    return false;
-  }
-  
-  // Validate first
-  if (!validateJson(json, errorMsg)) {
-    return false;
-  }
-  
-  // Import WiFi Configuration
-  if (doc["wifi"]["ssid"].is<const char*>()) {
-    strlcpy(ssid, doc["wifi"]["ssid"], sizeof(ssid));
-  }
-  
-  if (doc["wifi"]["password"].is<const char*>()) {
-    const char* pwd = doc["wifi"]["password"];
-    // Skip if placeholder
-    if (strcmp(pwd, "***NOT_EXPORTED***") != 0) {
-      strlcpy(password, pwd, sizeof(password));
+const TariffPeriod& Config::activeTariff(time_t now) {
+  uint8_t selected = 0;
+  time_t selectedTime = 0;
+  for (uint8_t i = 0; i < tariffCount; ++i) {
+    time_t candidate;
+    if (parseDate(tariffs[i].validFrom, candidate) && candidate <= now && candidate >= selectedTime) {
+      selected = i;
+      selectedTime = candidate;
     }
   }
-  
-  if (doc["wifi"]["hostname"].is<const char*>()) {
-    strlcpy(hostname, doc["wifi"]["hostname"], sizeof(hostname));
-  }
-  
-  if (doc["wifi"]["use_static_ip"].is<bool>()) {
-    use_static_ip = doc["wifi"]["use_static_ip"];
-  }
-  
-  if (doc["wifi"]["static_ip"].is<const char*>()) {
-    strlcpy(static_ip, doc["wifi"]["static_ip"], sizeof(static_ip));
-  }
-  
-  if (doc["wifi"]["static_gateway"].is<const char*>()) {
-    strlcpy(static_gateway, doc["wifi"]["static_gateway"], sizeof(static_gateway));
-  }
-  
-  if (doc["wifi"]["static_subnet"].is<const char*>()) {
-    strlcpy(static_subnet, doc["wifi"]["static_subnet"], sizeof(static_subnet));
-  }
-  
-  if (doc["wifi"]["static_dns"].is<const char*>()) {
-    strlcpy(static_dns, doc["wifi"]["static_dns"], sizeof(static_dns));
-  }
-  
-  // Import MQTT Configuration
-  if (doc["mqtt"]["server"].is<const char*>()) {
-    strlcpy(mqtt_server, doc["mqtt"]["server"], sizeof(mqtt_server));
-  }
-  
-  if (doc["mqtt"]["port"].is<int>()) {
-    mqtt_port = doc["mqtt"]["port"];
-  }
-  
-  if (doc["mqtt"]["user"].is<const char*>()) {
-    strlcpy(mqtt_user, doc["mqtt"]["user"], sizeof(mqtt_user));
-  }
-  
-  if (doc["mqtt"]["password"].is<const char*>()) {
-    const char* pwd = doc["mqtt"]["password"];
-    // Skip if placeholder
-    if (strcmp(pwd, "***NOT_EXPORTED***") != 0) {
-      strlcpy(mqtt_pass, pwd, sizeof(mqtt_pass));
-    }
-  }
-  
-  if (doc["mqtt"]["topic"].is<const char*>()) {
-    strlcpy(mqtt_topic, doc["mqtt"]["topic"], sizeof(mqtt_topic));
-  }
-  
-  // Import Gas Configuration
-  if (doc["gas"]["calorific_value"].is<float>()) {
-    gas_calorific_value = doc["gas"]["calorific_value"];
-  }
-  
-  if (doc["gas"]["correction_factor"].is<float>()) {
-    gas_correction_factor = doc["gas"]["correction_factor"];
-  }
-  
-  if (doc["gas"]["poll_interval_seconds"].is<int>()) {
-    poll_interval = doc["gas"]["poll_interval_seconds"].as<unsigned long>() * 1000;
-  }
-  
-  if (doc["gas"]["base_price_monthly"].is<float>()) {
-    gas_base_price_monthly = doc["gas"]["base_price_monthly"];
-  }
-  
-  if (doc["gas"]["work_price_per_kwh"].is<float>()) {
-    gas_work_price_per_kwh = doc["gas"]["work_price_per_kwh"];
-  }
-  
-  // Import Deep Sleep (optional)
-  if (doc["deep_sleep"]["enabled"].is<bool>()) {
-    enable_deep_sleep = doc["deep_sleep"]["enabled"];
-  }
-  
-  if (doc["deep_sleep"]["duration_seconds"].is<int>()) {
-    deep_sleep_duration = doc["deep_sleep"]["duration_seconds"];
-  }
-  
-  // Validate and fix poll_interval
-  validatePollInterval();
-  
-  // Generate availability topic
-  snprintf(mqtt_availability_topic, sizeof(mqtt_availability_topic), 
-           "%s_availability", mqtt_topic);
-  
-  Serial.println("✅ Config erfolgreich importiert aus JSON");
-  return true;
+  return tariffs[selected];
 }
 
-bool Config::validateJson(const String& json, String* errorMsg) {
-  JsonDocument doc;
-  DeserializationError error = deserializeJson(doc, json);
-  
-  if (error) {
-    if (errorMsg) *errorMsg = "Invalid JSON: " + String(error.c_str());
-    return false;
-  }
-  
-  // Check required fields
-  if (!doc["wifi"].is<JsonObject>()) {
-    if (errorMsg) *errorMsg = "Missing 'wifi' section";
-    return false;
-  }
-  
-  if (!doc["mqtt"].is<JsonObject>()) {
-    if (errorMsg) *errorMsg = "Missing 'mqtt' section";
-    return false;
-  }
-  
-  if (!doc["gas"].is<JsonObject>()) {
-    if (errorMsg) *errorMsg = "Missing 'gas' section";
-    return false;
-  }
-  
-  // Validate WiFi SSID (mandatory)
-  if (!doc["wifi"]["ssid"].is<const char*>() || strlen(doc["wifi"]["ssid"]) == 0) {
-    if (errorMsg) *errorMsg = "Invalid or missing WiFi SSID";
-    return false;
-  }
-  
-  // Validate MQTT Server (mandatory)
-  if (!doc["mqtt"]["server"].is<const char*>() || strlen(doc["mqtt"]["server"]) == 0) {
-    if (errorMsg) *errorMsg = "Invalid or missing MQTT server";
-    return false;
-  }
-  
-  // Validate MQTT Port
-  if (doc["mqtt"]["port"].is<int>()) {
-    int port = doc["mqtt"]["port"];
-    if (port < 1 || port > 65535) {
-      if (errorMsg) *errorMsg = "Invalid MQTT port (must be 1-65535)";
-      return false;
-    }
-  }
-  
-  // Validate Gas Parameters
-  if (doc["gas"]["calorific_value"].is<float>()) {
-    float cal = doc["gas"]["calorific_value"];
-    if (cal < 8.0 || cal > 13.0) {
-      if (errorMsg) *errorMsg = "Invalid calorific value (must be 8.0-13.0)";
-      return false;
-    }
-  }
-  
-  if (doc["gas"]["correction_factor"].is<float>()) {
-    float corr = doc["gas"]["correction_factor"];
-    if (corr < 0.9 || corr > 1.1) {
-      if (errorMsg) *errorMsg = "Invalid correction factor (must be 0.9-1.1)";
-      return false;
-    }
-  }
-  
-  if (doc["gas"]["poll_interval_seconds"].is<int>()) {
-    int interval = doc["gas"]["poll_interval_seconds"];
-    if (interval < 10 || interval > 300) {
-      if (errorMsg) *errorMsg = "Invalid poll interval (must be 10-300 seconds)";
-      return false;
-    }
-  }
-  
-  return true;
+void Config::factoryReset() {
+  preferences_.begin("gasmeter", false);
+  preferences_.clear();
+  preferences_.end();
+  preferences_.begin("gas-config", false);
+  preferences_.clear();
+  preferences_.end();
 }
-

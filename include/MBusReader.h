@@ -1,56 +1,42 @@
-#ifndef MBUS_READER_H
-#define MBUS_READER_H
+#pragma once
 
 #include <Arduino.h>
-#include <HardwareSerial.h>
+#include <functional>
+#include "MBusProtocol.h"
 #include "constants.h"
 
-// ==========================================
-// M-BUS STATISTICS
-// ==========================================
 struct MBusStats {
-  unsigned long totalPolls = 0;
-  unsigned long successfulPolls = 0;
-  unsigned long totalResponseTime = 0;
-  unsigned long lastResponseTime = 0;
-  unsigned long avgResponseTime = 0;
-  String lastHexDump = "";
+  uint32_t polls = 0;
+  uint32_t successful = 0;
+  uint32_t timeouts = 0;
+  uint32_t parseErrors = 0;
+  uint32_t checksumErrors = 0;
+  uint32_t lastResponseMs = 0;
+  uint32_t averageResponseMs = 0;
+  MBusProtocol::Error lastError = MBusProtocol::Error::None;
+  String lastHexDump;
 };
 
-// ==========================================
-// M-BUS STATE MACHINE
-// ==========================================
-enum MBusState { 
-  MBUS_IDLE, 
-  MBUS_WAIT_RESPONSE 
-};
-
-// ==========================================
-// M-BUS READER CLASS
-// ==========================================
 class MBusReader {
-public:
-  static void init();
-  static void poll();
-  static void processResponse(float& volume, bool& success);
-  static float parseGasVolumeBCD(const uint8_t* data, size_t len);
-  
-  static MBusStats& getStats() { return stats; }
-  static MBusState getState() { return state; }
-  static unsigned long getLastActionTime() { return lastActionTime; }
-  static void resetStats();
-  
-private:
-  static HardwareSerial serial;
-  static MBusState state;
-  static unsigned long lastActionTime;
-  static uint8_t buffer[MBUS_BUFFER_SIZE];
-  static size_t bufferLen;
-  static MBusStats stats;
-  
-  static void sendPollFrame();
-  static void readResponse();
-  static String createHexDump();
-};
+ public:
+  using ReadingCallback = std::function<void(float rawVolumeM3)>;
+  static void begin(ReadingCallback callback);
+  static void loop();
+  static bool trigger();
+  static const MBusStats& stats();
 
-#endif // MBUS_READER_H
+ private:
+  enum class State : uint8_t { Idle, Waiting };
+  static void sendPoll();
+  static void finishFrame();
+  static HardwareSerial serial_;
+  static State state_;
+  static uint8_t buffer_[Constants::MBUS_BUFFER_SIZE];
+  static size_t length_;
+  static size_t expectedLength_;
+  static uint32_t sentAt_;
+  static uint32_t nextPollAt_;
+  static uint64_t totalResponseMs_;
+  static MBusStats stats_;
+  static ReadingCallback callback_;
+};
