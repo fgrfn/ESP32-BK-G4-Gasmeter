@@ -11,7 +11,8 @@ int main() {
   assert(CoreLogic::calculateFlowM3h(100.0f, 99.0f, 60, 25.0f) == 0.0f);
   assert(CoreLogic::calculateFlowM3h(100.0f, 101.0f, 1, 25.0f) == 0.0f);
   assert(std::fabs(CoreLogic::positiveDelta(10.0f, 10.5f) - 0.5f) < 0.0001f);
-  assert(CoreLogic::positiveDelta(10.0f, 10.0005f) == 0.0f);
+  assert(std::fabs(CoreLogic::positiveDelta(10.0f, 10.001f) - 0.001f) < 0.0001f);
+  assert(CoreLogic::positiveDelta(10.0f, 10.000001f) == 0.0f);
   assert(CoreLogic::positiveDelta(10.0f, 9.0f) == 0.0f);
 
   assert(CoreLogic::isValidHostname("esp32-gasmeter"));
