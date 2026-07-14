@@ -14,7 +14,8 @@ ESP32 gateway for reading the M-Bus encoder of a Honeywell/Elster BK-G4 gas mete
 - Home Assistant discovery with diagnostics, health sensors and optional poll/restart/configuration controls
 - Full local WebUI for network, MQTT, measurement and security settings
 - Config import/export, logs, M-Bus hex dump, Prometheus metrics and manual polling
-- Random setup-AP password, HTTP Digest authentication and redacted secrets
+- Random setup-AP and ArduinoOTA passwords, HTTP Digest authentication and redacted secrets
+- Editable WebUI credentials with documented initial login
 - NTP-aware accounting: period values are not updated until the clock is synchronized
 - Reset-reason-aware safe mode and delayed ESP-IDF OTA rollback acceptance
 - Captive setup portal, mDNS/hostname support and static IPv4 configuration
@@ -45,9 +46,20 @@ pio run -e esp32dev -t upload
 pio device monitor
 ```
 
-On first boot, the firmware opens an access point named `ESP32-Gas-XXXXXX`. Its random password and the generated WebUI/ArduinoOTA credentials are printed to the serial monitor. Open `http://192.168.4.1` and enter Wi-Fi and MQTT settings.
+On first boot, the firmware opens an access point named `ESP32-Gas-XXXXXX`. The setup-AP password and the generated ArduinoOTA password are printed to the serial monitor. Open `http://192.168.4.1` and enter Wi-Fi and MQTT settings.
 
-Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset.
+Initial WebUI login:
+
+```text
+Username: admin
+Password: admin
+```
+
+Change both values after the first login under **Configuration → Security**. The new username and password are stored in NVS and remain active across normal restarts and OTA updates.
+
+Firmware 3.1.1 uses configuration schema 5. When upgrading an older schema, the WebUI login is reset once to `admin` / `admin`; credentials changed afterwards are preserved.
+
+Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset. A factory reset also restores the WebUI login to `admin` / `admin`.
 
 ## Home Assistant and MQTT
 
@@ -77,7 +89,7 @@ A pending ESP-IDF OTA image is accepted only after the device has passed runtime
 
 The dashboard status and Prometheus endpoint are read-only. Configuration, logs, history export, manual polling, reset and restart are authenticated outside setup-AP mode. Passwords are never returned by `/api/config`.
 
-Do not expose the HTTP WebUI directly to the Internet. See [SECURITY.md](SECURITY.md) for TLS, Secure Boot and network-segmentation guidance.
+The initial `admin` / `admin` login is intentionally predictable for commissioning and is not suitable for permanent operation. Change it immediately and do not expose the HTTP WebUI directly to the Internet. See [SECURITY.md](SECURITY.md) for TLS, Secure Boot and network-segmentation guidance.
 
 ## Build and test
 
@@ -96,8 +108,8 @@ Dependencies and the ESP32 platform are pinned in `platformio.ini`. GitHub Actio
 A release is created only for a semantic version tag matching `include/version.h`:
 
 ```bash
-git tag v3.1.0
-git push origin v3.1.0
+git tag v3.1.1
+git push origin v3.1.1
 ```
 
 The workflow publishes:
