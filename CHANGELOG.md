@@ -22,6 +22,12 @@
 
 ### Fixed
 
+- Accepted the valid default tariff date `1970-01-01` on fresh installations.
+- Made JSON configuration updates transactional and preserved secrets when empty fields are imported.
+- Extended factory reset to remove usage baselines and boot-guard state.
+- Preserved cumulative energy and historic variable tariff costs when conversion factors or prices change.
+- Resynchronized M-Bus input after request echoes, ACK bytes, malformed headers and line noise.
+- Calculated average M-Bus response time from completed responses instead of all polls.
 - Removed plaintext password responses from `/api/config`.
 - Removed unauthenticated reset/config/OTA management.
 - Removed shared static HTTP body buffers and manual JSON parsing.
