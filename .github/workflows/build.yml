@@ -24,6 +24,8 @@ jobs:
           python-version: "3.12"
       - run: pip install "platformio==6.1.18"
       - run: pio test -e native
+      - name: Replay captured M-Bus telegram
+        run: python tools/replay_mbus.py test/fixtures/bk_g4_synthetic.hex --expect 123.456
 
   firmware:
     runs-on: ubuntu-latest
