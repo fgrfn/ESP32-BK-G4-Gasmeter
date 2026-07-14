@@ -31,7 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        environment: [esp32dev, esp32dev-debug]
+        environment: [esp32dev, esp32dev-debug, esp32-s3-devkitc-1]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
