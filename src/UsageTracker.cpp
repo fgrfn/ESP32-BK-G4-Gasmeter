@@ -9,7 +9,8 @@
 Preferences UsageTracker::preferences_;
 UsageSnapshot UsageTracker::snapshot_;
 float UsageTracker::previousVolume_ = -1.0f;
-uint32_t UsageTracker::previousReadingMs_ = 0;
+float UsageTracker::flowReferenceVolume_ = -1.0f;
+uint32_t UsageTracker::flowReferenceMs_ = 0;
 float UsageTracker::dayBaseline_ = -1.0f;
 float UsageTracker::monthBaseline_ = -1.0f;
 float UsageTracker::yearBaseline_ = -1.0f;
@@ -18,6 +19,7 @@ float UsageTracker::monthEnergyBaseline_ = -1.0f;
 float UsageTracker::yearEnergyBaseline_ = -1.0f;
 float UsageTracker::cumulativeEnergyKwh_ = -1.0f;
 uint32_t UsageTracker::continuousFlowStartedMs_ = 0;
+uint32_t UsageTracker::lastPositiveFlowMs_ = 0;
 DailyUsageRecord UsageTracker::dailyHistory_[31];
 size_t UsageTracker::dailyHistoryCount_ = 0;
 char UsageTracker::dayKey_[11] = "";
@@ -133,17 +135,28 @@ void UsageTracker::updatePeriods(float volume, float energy, time_t now) {
     dayEnergyBaseline_ = energy;
     strlcpy(dayKey_, keys.day, sizeof(dayKey_));
     changed = true;
+  } else if (dayEnergyBaseline_ < 0.0f) {
+    dayEnergyBaseline_ = energy;
+    changed = true;
   }
+
   if (monthBaseline_ < 0.0f || strcmp(monthKey_, keys.month) != 0) {
     monthBaseline_ = volume;
     monthEnergyBaseline_ = energy;
     strlcpy(monthKey_, keys.month, sizeof(monthKey_));
     changed = true;
+  } else if (monthEnergyBaseline_ < 0.0f) {
+    monthEnergyBaseline_ = energy;
+    changed = true;
   }
+
   if (yearBaseline_ < 0.0f || strcmp(yearKey_, keys.year) != 0) {
     yearBaseline_ = volume;
     yearEnergyBaseline_ = energy;
     strlcpy(yearKey_, keys.year, sizeof(yearKey_));
+    changed = true;
+  } else if (yearEnergyBaseline_ < 0.0f) {
+    yearEnergyBaseline_ = energy;
     changed = true;
   }
   if (changed) saveState();
@@ -151,14 +164,32 @@ void UsageTracker::updatePeriods(float volume, float energy, time_t now) {
 
 void UsageTracker::updateContinuousFlow(float flowM3h) {
   const bool enabled = Config::continuousFlowThresholdM3h > 0.0f && Config::continuousFlowAlertMinutes > 0;
-  if (!enabled || flowM3h < Config::continuousFlowThresholdM3h) {
+  if (!enabled) {
     continuousFlowStartedMs_ = 0;
+    lastPositiveFlowMs_ = 0;
     snapshot_.continuousFlowMinutes = 0;
     snapshot_.continuousFlowAlert = false;
     return;
   }
-  if (continuousFlowStartedMs_ == 0) continuousFlowStartedMs_ = millis();
-  snapshot_.continuousFlowMinutes = (millis() - continuousFlowStartedMs_) / 60000UL;
+
+  const uint32_t nowMs = millis();
+  if (flowM3h >= Config::continuousFlowThresholdM3h) {
+    if (continuousFlowStartedMs_ == 0) continuousFlowStartedMs_ = nowMs;
+    lastPositiveFlowMs_ = nowMs;
+  } else if (continuousFlowStartedMs_ != 0) {
+    const uint32_t pollGrace = Config::pollIntervalMs > 200000UL ? Config::pollIntervalMs * 3UL : 600000UL;
+    if (lastPositiveFlowMs_ == 0 || nowMs - lastPositiveFlowMs_ > pollGrace) {
+      continuousFlowStartedMs_ = 0;
+      lastPositiveFlowMs_ = 0;
+    }
+  }
+
+  if (continuousFlowStartedMs_ == 0) {
+    snapshot_.continuousFlowMinutes = 0;
+    snapshot_.continuousFlowAlert = false;
+    return;
+  }
+  snapshot_.continuousFlowMinutes = (nowMs - continuousFlowStartedMs_) / 60000UL;
   snapshot_.continuousFlowAlert = snapshot_.continuousFlowMinutes >= Config::continuousFlowAlertMinutes;
 }
 
@@ -185,9 +216,15 @@ void UsageTracker::update(float rawVolumeM3, time_t now, bool timeSynchronized) 
   snapshot_.timeSynchronized = timeSynchronized;
 
   const uint32_t currentReadingMs = millis();
-  if (!meterReset && previousVolume_ >= 0.0f && previousReadingMs_ != 0) {
-    const uint32_t elapsedSeconds = (currentReadingMs - previousReadingMs_) / 1000UL;
-    snapshot_.flowM3h = CoreLogic::calculateFlowM3h(previousVolume_, correctedVolume, elapsedSeconds, Config::maxFlowM3h);
+  if (meterReset || flowReferenceVolume_ < 0.0f || flowReferenceMs_ == 0) {
+    flowReferenceVolume_ = correctedVolume;
+    flowReferenceMs_ = currentReadingMs;
+    snapshot_.flowM3h = 0.0f;
+  } else if (CoreLogic::positiveDelta(flowReferenceVolume_, correctedVolume) > 0.0f) {
+    const uint32_t elapsedSeconds = (currentReadingMs - flowReferenceMs_) / 1000UL;
+    snapshot_.flowM3h = CoreLogic::calculateFlowM3h(flowReferenceVolume_, correctedVolume, elapsedSeconds, Config::maxFlowM3h);
+    flowReferenceVolume_ = correctedVolume;
+    flowReferenceMs_ = currentReadingMs;
   } else {
     snapshot_.flowM3h = 0.0f;
   }
@@ -203,7 +240,6 @@ void UsageTracker::update(float rawVolumeM3, time_t now, bool timeSynchronized) 
   }
 
   previousVolume_ = correctedVolume;
-  previousReadingMs_ = currentReadingMs;
   static uint32_t lastPersist = 0;
   if (millis() - lastPersist >= 3600000UL) {
     saveState();
