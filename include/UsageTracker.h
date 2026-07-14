@@ -44,7 +44,8 @@ class UsageTracker {
   static Preferences preferences_;
   static UsageSnapshot snapshot_;
   static float previousVolume_;
-  static uint32_t previousReadingMs_;
+  static float flowReferenceVolume_;
+  static uint32_t flowReferenceMs_;
   static float dayBaseline_;
   static float monthBaseline_;
   static float yearBaseline_;
@@ -53,6 +54,7 @@ class UsageTracker {
   static float yearEnergyBaseline_;
   static float cumulativeEnergyKwh_;
   static uint32_t continuousFlowStartedMs_;
+  static uint32_t lastPositiveFlowMs_;
   static DailyUsageRecord dailyHistory_[31];
   static size_t dailyHistoryCount_;
   static char dayKey_[11];
