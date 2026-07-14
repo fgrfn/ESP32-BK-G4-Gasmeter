@@ -6,6 +6,7 @@
 namespace {
 constexpr uint32_t kMinPollMs = 10000;
 constexpr uint32_t kMaxPollMs = 3600000;
+constexpr int64_t kSynchronizedEpoch = 1577836800;
 
 bool isLeapYear(int year) {
   return (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
@@ -20,11 +21,17 @@ uint32_t CoreLogic::clampPollIntervalMs(uint32_t value) {
 
 float CoreLogic::calculateFlowM3h(float previousVolume, float currentVolume, uint32_t elapsedSeconds, float maxFlowM3h) {
   if (!std::isfinite(previousVolume) || !std::isfinite(currentVolume) || elapsedSeconds == 0) return 0.0f;
-  const float delta = currentVolume - previousVolume;
-  if (delta < 0.0f) return 0.0f;
+  const float delta = positiveDelta(previousVolume, currentVolume, 0.0f);
+  if (delta <= 0.0f) return 0.0f;
   const float flow = delta * 3600.0f / static_cast<float>(elapsedSeconds);
   if (!std::isfinite(flow) || flow < 0.0f || flow > maxFlowM3h) return 0.0f;
   return flow;
+}
+
+float CoreLogic::positiveDelta(float previousVolume, float currentVolume, float tolerance) {
+  if (!std::isfinite(previousVolume) || !std::isfinite(currentVolume) || previousVolume < 0.0f) return 0.0f;
+  const float delta = currentVolume - previousVolume;
+  return delta > tolerance ? delta : 0.0f;
 }
 
 bool CoreLogic::isValidHostname(const char* value) {
@@ -54,6 +61,28 @@ bool CoreLogic::isValidIsoDate(const char* value) {
   int maxDay = daysPerMonth[month - 1];
   if (month == 2 && isLeapYear(year)) maxDay = 29;
   return day <= maxDay;
+}
+
+bool CoreLogic::isValidMqttBaseTopic(const char* value) {
+  if (!value) return false;
+  const size_t len = std::strlen(value);
+  if (len == 0 || len > 64 || value[0] == '/' || value[len - 1] == '/') return false;
+  bool previousSlash = false;
+  for (size_t i = 0; i < len; ++i) {
+    const unsigned char c = static_cast<unsigned char>(value[i]);
+    if (c < 0x20 || c == 0x7f || c == '+' || c == '#') return false;
+    if (c == '/') {
+      if (previousSlash) return false;
+      previousSlash = true;
+    } else {
+      previousSlash = false;
+    }
+  }
+  return true;
+}
+
+bool CoreLogic::isSynchronizedEpoch(int64_t epochSeconds) {
+  return epochSeconds >= kSynchronizedEpoch;
 }
 
 void CoreLogic::makeSafeId(const char* input, char* output, size_t outputSize) {
