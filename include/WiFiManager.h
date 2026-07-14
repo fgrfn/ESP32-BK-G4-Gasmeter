@@ -1,29 +1,24 @@
-#ifndef WIFI_MANAGER_H
-#define WIFI_MANAGER_H
+#pragma once
 
 #include <Arduino.h>
-#include <WiFi.h>
-#include "constants.h"
+#include <DNSServer.h>
 
-// ==========================================
-// WIFI MANAGER CLASS
-// ==========================================
 class WiFiManager {
-public:
-  static void init();
-  static bool connect();
-  static void startAPMode();
-  static bool isAPMode() { return apMode; }
-  static bool isConnected() { return WiFi.status() == WL_CONNECTED; }
-  static void checkConnection();
-  static String getLocalIP();
-  static int getRSSI();
-  
-private:
-  static bool apMode;
-  static unsigned long apModeStartTime;
-  
-  static bool configureStaticIP();
-};
+ public:
+  static void begin(bool forceAccessPoint);
+  static void loop();
+  static bool connected();
+  static bool accessPointMode();
+  static const char* accessPointSsid();
+  static const char* accessPointPassword();
+  static String ipAddress();
+  static void reconnect();
 
-#endif // WIFI_MANAGER_H
+ private:
+  static void startAccessPoint();
+  static DNSServer dnsServer_;
+  static bool apMode_;
+  static char apSsid_[33];
+  static char apPassword_[17];
+  static uint32_t lastReconnectAttempt_;
+};

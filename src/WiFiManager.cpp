@@ -1,121 +1,90 @@
 #include "WiFiManager.h"
+#include <WiFi.h>
+#include <esp_system.h>
 #include "Config.h"
 #include "Logger.h"
+#include "constants.h"
 
-// Static member initialization
-bool WiFiManager::apMode = false;
-unsigned long WiFiManager::apModeStartTime = 0;
+DNSServer WiFiManager::dnsServer_;
+bool WiFiManager::apMode_ = false;
+char WiFiManager::apSsid_[33] = "";
+char WiFiManager::apPassword_[17] = "";
+uint32_t WiFiManager::lastReconnectAttempt_ = 0;
 
-void WiFiManager::init() {
-  apMode = false;
+namespace {
+void makeApPassword(char* out, size_t size) {
+  static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+  for (size_t i = 0; i + 1 < size; ++i) out[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
+  out[size - 1] = '\0';
+}
 }
 
-bool WiFiManager::configureStaticIP() {
-  if (!Config::use_static_ip) {
-    return true;
-  }
-  
-  IPAddress ip, gateway, subnet, dns;
-  ip.fromString(Config::static_ip);
-  gateway.fromString(Config::static_gateway);
-  subnet.fromString(Config::static_subnet);
-  dns.fromString(Config::static_dns);
-  
-  if (!WiFi.config(ip, gateway, subnet, dns)) {
-    Serial.println("Static IP Konfiguration fehlgeschlagen!");
-    return false;
-  }
-  
-  char msg[60];
-  snprintf(msg, sizeof(msg), "Static IP konfiguriert: %s", Config::static_ip);
-  Serial.println(msg);
-  return true;
-}
-
-bool WiFiManager::connect() {
-  // Wenn SSID Default ist, direkt in AP-Modus gehen
-  if (strcmp(Config::ssid, DEFAULT_SSID) == 0 || strlen(Config::ssid) == 0) {
-    Serial.println("Keine WLAN-Konfiguration gefunden. Starte Access Point...");
-    startAPMode();
-    return false;
-  }
-  
-  WiFi.mode(WIFI_STA);
+void WiFiManager::begin(bool forceAccessPoint) {
+  WiFi.persistent(false);
+  WiFi.setAutoReconnect(true);
   WiFi.setHostname(Config::hostname);
-  
-  // Static IP konfigurieren falls aktiviert
-  configureStaticIP();
-  
-  WiFi.begin(Config::ssid, Config::password);
-  Serial.print("Verbinde mit WLAN: ");
-  Serial.println(Config::ssid);
-  
-  unsigned long start = millis();
-  while (WiFi.status() != WL_CONNECTED && millis() - start < WIFI_CONNECT_TIMEOUT) {
-    delay(500);
-    Serial.print(".");
+  if (forceAccessPoint || Config::ssid[0] == '\0') {
+    startAccessPoint();
+    return;
   }
-  Serial.println();
-  
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.print("Verbunden! IP: ");
-    Serial.println(WiFi.localIP());
-    char msg[60];
-    snprintf(msg, sizeof(msg), "WiFi verbunden: %s", WiFi.localIP().toString().c_str());
-    Logger::addLog(msg);
-    apMode = false;
-    return true;
-  } else {
-    Serial.println("WLAN-Verbindung fehlgeschlagen!");
-    char msg[80];
-    snprintf(msg, sizeof(msg), "WiFi: Verbindung zu %s fehlgeschlagen", Config::ssid);
-    Logger::addLog(msg);
-    Serial.println("Starte Access Point fuer Konfiguration...");
-    Logger::addLog("Starte Access Point Modus");
-    startAPMode();
-    return false;
-  }
-}
 
-void WiFiManager::startAPMode() {
-  WiFi.mode(WIFI_AP);
-  WiFi.softAP(AP_SSID, AP_PASSWORD);
-  apMode = true;
-  apModeStartTime = millis();
-  
-  Serial.println("Access Point gestartet");
-  Serial.print("SSID: ");
-  Serial.println(AP_SSID);
-  Serial.print("IP: ");
-  Serial.println(WiFi.softAPIP());
-  
-  char msg[100];
-  snprintf(msg, sizeof(msg), "AP-Modus: SSID=%s, IP=%s", 
-           AP_SSID, WiFi.softAPIP().toString().c_str());
-  Logger::addLog(msg);
-}
-
-void WiFiManager::checkConnection() {
-  if (apMode) {
-    return; // Im AP-Modus keine Reconnect-Versuche
+  WiFi.mode(WIFI_STA);
+  if (Config::staticIpEnabled) {
+    IPAddress ip, gateway, subnet, dns;
+    ip.fromString(Config::staticIp);
+    gateway.fromString(Config::gateway);
+    subnet.fromString(Config::subnet);
+    dns.fromString(Config::dns);
+    if (!WiFi.config(ip, gateway, subnet, dns)) Logger::warn("Static IP configuration failed");
   }
-  
+  WiFi.begin(Config::ssid, Config::wifiPassword);
+  Logger::info("Connecting to Wi-Fi " + String(Config::ssid));
+  const uint32_t started = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - started < Constants::WIFI_CONNECT_TIMEOUT_MS) delay(100);
   if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi Verbindung verloren, versuche Reconnect...");
-    connect();
+    Logger::warn("Wi-Fi timeout; enabling setup AP");
+    startAccessPoint();
+    return;
   }
+  apMode_ = false;
+  Logger::info("Wi-Fi connected: " + WiFi.localIP().toString());
 }
 
-String WiFiManager::getLocalIP() {
-  if (apMode) {
-    return WiFi.softAPIP().toString();
-  }
-  return WiFi.localIP().toString();
+void WiFiManager::startAccessPoint() {
+  WiFi.disconnect(true, true);
+  delay(100);
+  WiFi.mode(WIFI_AP);
+  uint8_t mac[6] = {};
+  WiFi.softAPmacAddress(mac);
+  snprintf(apSsid_, sizeof(apSsid_), "ESP32-Gas-%02X%02X%02X", mac[3], mac[4], mac[5]);
+  makeApPassword(apPassword_, sizeof(apPassword_));
+  WiFi.softAP(apSsid_, apPassword_);
+  dnsServer_.start(53, "*", WiFi.softAPIP());
+  apMode_ = true;
+  Logger::warn("Setup AP active: " + String(apSsid_));
+  Serial.printf("Setup AP password: %s\n", apPassword_);
+  Serial.printf("Web user: %s\nWeb password: %s\nOTA password: %s\n", Config::webUser, Config::webPassword, Config::otaPassword);
 }
 
-int WiFiManager::getRSSI() {
-  if (apMode) {
-    return 0;
+void WiFiManager::loop() {
+  if (apMode_) {
+    dnsServer_.processNextRequest();
+    return;
   }
-  return WiFi.RSSI();
+  if (WiFi.status() == WL_CONNECTED) return;
+  if (millis() - lastReconnectAttempt_ < 10000) return;
+  lastReconnectAttempt_ = millis();
+  reconnect();
 }
+
+void WiFiManager::reconnect() {
+  Logger::warn("Wi-Fi reconnect");
+  WiFi.disconnect();
+  WiFi.begin(Config::ssid, Config::wifiPassword);
+}
+
+bool WiFiManager::connected() { return WiFi.status() == WL_CONNECTED; }
+bool WiFiManager::accessPointMode() { return apMode_; }
+const char* WiFiManager::accessPointSsid() { return apSsid_; }
+const char* WiFiManager::accessPointPassword() { return apPassword_; }
+String WiFiManager::ipAddress() { return apMode_ ? WiFi.softAPIP().toString() : WiFi.localIP().toString(); }
