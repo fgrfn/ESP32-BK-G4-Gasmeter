@@ -13,6 +13,7 @@ struct MBusStats {
   uint32_t checksumErrors = 0;
   uint32_t lastResponseMs = 0;
   uint32_t averageResponseMs = 0;
+  uint32_t lastSuccessMs = 0;
   MBusProtocol::Error lastError = MBusProtocol::Error::None;
   String lastHexDump;
 };
@@ -23,6 +24,7 @@ class MBusReader {
   static void begin(ReadingCallback callback);
   static void loop();
   static bool trigger();
+  static bool healthy();
   static const MBusStats& stats();
 
  private:
