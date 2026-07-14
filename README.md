@@ -12,6 +12,7 @@ ESP32 gateway for reading the M-Bus encoder of a Honeywell/Elster BK-G4 gas mete
 - Continuous-flow plausibility warning with configurable threshold and duration
 - MQTT with retained JSON state, Last Will, optional TLS and unique per-device base topics
 - Home Assistant discovery with diagnostics, health sensors and optional poll/restart/configuration controls
+- Responsive local dashboard with a mechanical gas-meter-style counter display
 - Full local WebUI for network, MQTT, measurement and security settings
 - Config import/export, logs, M-Bus hex dump, Prometheus metrics and manual polling
 - Random setup-AP and ArduinoOTA passwords, HTTP Digest authentication and redacted secrets
@@ -60,6 +61,20 @@ Change both values after the first login under **Configuration → Security**. T
 Firmware 3.1.1 uses configuration schema 5. When upgrading an older schema, the WebUI login is reset once to `admin` / `admin`; credentials changed afterwards are preserved.
 
 Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset. A factory reset also restores the WebUI login to `admin` / `admin`.
+
+## WebUI dashboard
+
+The dashboard is embedded directly in the firmware and does not load external fonts, scripts or cloud resources. It is designed for desktop and mobile browsers and includes:
+
+- a mechanical counter-style representation of the gas meter reading
+- black whole-number rollers and red decimal rollers, matching a physical gas meter
+- live status indicators for M-Bus, NTP and MQTT
+- total energy, flow rate and M-Bus success rate
+- daily, monthly and yearly volume and energy values
+- continuous-flow warning state
+- collapsible configuration, import/export and diagnostics sections
+
+The browser refreshes live values every five seconds. The dashboard and metrics endpoints are read-only; configuration and maintenance actions require authentication outside setup-AP mode.
 
 ## Home Assistant and MQTT
 

@@ -8,6 +8,8 @@
 - WebUI username and password remain editable under **Configuration → Security** and are persisted in NVS.
 - Configuration schema is now `5`; upgrading from an older schema resets the WebUI login once to the documented defaults.
 - ArduinoOTA continues to use its own separately generated/configurable password.
+- The embedded WebUI has been redesigned as a responsive dashboard with clearer status, consumption and maintenance sections.
+- The current meter reading is displayed as a mechanical gas-meter counter with black whole-number rollers and red decimal rollers.
 
 ### Security
 
