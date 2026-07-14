@@ -5,12 +5,6 @@
 #include <Preferences.h>
 #include "constants.h"
 
-struct TariffPeriod {
-  char validFrom[11] = "1970-01-01";
-  float workPricePerKwh = 0.12f;
-  float basePriceMonthly = 10.0f;
-};
-
 class Config {
  public:
   static void begin();
@@ -20,7 +14,6 @@ class Config {
   static bool importJson(JsonVariantConst root, String& error);
   static void toJson(JsonObject root, bool includeSecrets);
   static bool validate(String& error);
-  static const TariffPeriod& activeTariff(time_t now);
   static void generateDeviceIdentity();
 
   static char ssid[33];
@@ -52,14 +45,15 @@ class Config {
   static float correctionFactor;
   static float meterOffsetM3;
   static float maxFlowM3h;
+  static float continuousFlowThresholdM3h;
+  static uint32_t continuousFlowAlertMinutes;
   static char timezone[65];
-  static TariffPeriod tariffs[4];
-  static uint8_t tariffCount;
 
  private:
   static Preferences preferences_;
   static void setDefaults();
   static void migrate(uint32_t fromSchema);
   static void ensureSecrets();
+  static void ensureDefaultMqttTopic();
   static bool validIpv4(const char* value);
 };
