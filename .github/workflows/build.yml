@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
 
 concurrency:
   group: build-${{ github.ref }}
@@ -36,7 +37,24 @@ jobs:
           python-version: "3.12"
       - run: pip install "platformio==6.1.18"
       - name: Build ${{ matrix.environment }}
-        run: pio run -e ${{ matrix.environment }}
+        shell: bash
+        run: |
+          set -o pipefail
+          pio run -e ${{ matrix.environment }} 2>&1 | tee build.log
+      - name: Report compiler failure
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const log = fs.existsSync('build.log') ? fs.readFileSync('build.log', 'utf8') : 'No build log was produced.';
+            const tail = log.split('\n').slice(-140).join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `### CI compiler failure: \`${{ matrix.environment }}\`\n\n\`\`\`text\n${tail}\n\`\`\``
+            });
       - name: Enforce application size limit
         if: matrix.environment == 'esp32dev'
         run: |
@@ -61,4 +79,22 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install "platformio==6.1.18"
-      - run: pio check -e esp32dev --fail-on-defect high
+      - name: Run static analysis
+        shell: bash
+        run: |
+          set -o pipefail
+          pio check -e esp32dev --fail-on-defect high 2>&1 | tee check.log
+      - name: Report analysis failure
+        if: failure() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const log = fs.existsSync('check.log') ? fs.readFileSync('check.log', 'utf8') : 'No analysis log was produced.';
+            const tail = log.split('\n').slice(-140).join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `### CI static-analysis failure\n\n\`\`\`text\n${tail}\n\`\`\``
+            });
