@@ -1,0 +1,40 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "dependencyDashboard": true,
+  "enabledManagers": ["github-actions", "custom.regex"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
+      "matchStrings": ["platform = espressif32 @ (?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "platformio/platform-espressif32",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
+      "matchStrings": ["knolleary/PubSubClient @ (?<currentValue>\\d+\\.\\d+(?:\\.\\d+)?)"],
+      "depNameTemplate": "knolleary/pubsubclient",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
+      "matchStrings": ["bblanchon/ArduinoJson @ (?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "bblanchon/ArduinoJson",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": ["/^platformio\\.ini$/"],
+      "matchStrings": ["ESP32Async/(?<packageName>AsyncTCP|ESPAsyncWebServer) @ (?<currentValue>\\d+\\.\\d+\\.\\d+)"],
+      "depNameTemplate": "ESP32Async/{{{packageName}}}",
+      "datasourceTemplate": "github-releases",
+      "extractVersionTemplate": "^v?(?<version>.*)$"
+    }
+  ]
+}
