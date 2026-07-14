@@ -1,23 +1,19 @@
 #include <Arduino.h>
 #include <ArduinoOTA.h>
-#include <Preferences.h>
 #include <ESPmDNS.h>
 #include <WiFi.h>
-#include <esp_ota_ops.h>
-#include <time.h>
+#include "BootGuard.h"
 #include "Config.h"
 #include "Logger.h"
 #include "MBusReader.h"
 #include "MQTTHandler.h"
+#include "TimeManager.h"
 #include "UsageTracker.h"
 #include "WebServerManager.h"
 #include "WiFiManager.h"
 #include "constants.h"
 
 namespace {
-Preferences systemPreferences;
-bool safeMode = false;
-bool stableBootRecorded = false;
 uint32_t lastLedChange = 0;
 bool ledState = false;
 
@@ -29,29 +25,9 @@ bool resetButtonHeld() {
   return millis() - started >= 3000;
 }
 
-void initializeBootGuard() {
-  systemPreferences.begin("system", false);
-  uint8_t failures = systemPreferences.getUChar("boot_failures", 0);
-  failures = failures == 255 ? 255 : static_cast<uint8_t>(failures + 1);
-  systemPreferences.putUChar("boot_failures", failures);
-  systemPreferences.end();
-  safeMode = failures >= Constants::SAFE_MODE_BOOT_THRESHOLD;
-  if (safeMode) Logger::warn("Safe mode enabled after repeated unstable boots");
-}
-
-void recordStableBoot() {
-  if (stableBootRecorded || millis() < Constants::STABLE_BOOT_AFTER_MS) return;
-  stableBootRecorded = true;
-  systemPreferences.begin("system", false);
-  systemPreferences.putUChar("boot_failures", 0);
-  systemPreferences.end();
-  esp_ota_mark_app_valid_cancel_rollback();
-  Logger::info("Boot marked stable and OTA image accepted");
-}
-
 void updateLed() {
   uint32_t interval = 2000;
-  if (safeMode || WiFiManager::accessPointMode()) interval = 150;
+  if (BootGuard::safeMode() || WiFiManager::accessPointMode()) interval = 150;
   else if (!WiFiManager::connected()) interval = 250;
   else if (!MQTTHandler::connected() && Config::mqttHost[0]) interval = 600;
   if (millis() - lastLedChange >= interval) {
@@ -65,7 +41,10 @@ void initializeOta() {
   if (!WiFiManager::connected()) return;
   ArduinoOTA.setHostname(Config::hostname);
   ArduinoOTA.setPassword(Config::otaPassword);
-  ArduinoOTA.onStart([] { Logger::warn("ArduinoOTA started"); });
+  ArduinoOTA.onStart([] {
+    BootGuard::markPlannedRestart("arduino_ota");
+    Logger::warn("ArduinoOTA started");
+  });
   ArduinoOTA.onEnd([] { Logger::info("ArduinoOTA completed"); });
   ArduinoOTA.onError([](ota_error_t error) { Logger::error("ArduinoOTA error " + String(error)); });
   ArduinoOTA.begin();
@@ -77,15 +56,8 @@ void initializeMdns() {
   else Logger::warn("mDNS initialization failed");
 }
 
-void initializeTime() {
-  if (!WiFiManager::connected()) return;
-  configTzTime(Config::timezone, Constants::NTP_SERVER_1, Constants::NTP_SERVER_2);
-}
-
 void handleReading(float rawVolumeM3) {
-  time_t now = time(nullptr);
-  if (now < 1577836800) now = 1704067200 + static_cast<time_t>(millis() / 1000UL);
-  UsageTracker::update(rawVolumeM3, now);
+  UsageTracker::update(rawVolumeM3, TimeManager::now(), TimeManager::synchronized());
   MQTTHandler::publishReading(UsageTracker::snapshot());
 }
 }
@@ -106,16 +78,16 @@ void setup() {
     Config::begin();
     Config::save();
   }
-  initializeBootGuard();
 
-  WiFiManager::begin(safeMode);
-  initializeTime();
+  BootGuard::begin();
+  WiFiManager::begin(BootGuard::safeMode());
+  TimeManager::begin();
   initializeMdns();
   initializeOta();
   UsageTracker::begin();
   MBusReader::begin(handleReading);
   MQTTHandler::begin();
-  WebServerManager::begin(safeMode);
+  WebServerManager::begin(BootGuard::safeMode());
 
   Serial.printf("Device ID: %s\nWeb login: %s / %s\n", Config::deviceId, Config::webUser, Config::webPassword);
   Logger::info("Setup complete");
@@ -123,13 +95,16 @@ void setup() {
 
 void loop() {
   WiFiManager::loop();
+  TimeManager::loop();
   WebServerManager::loop();
   ArduinoOTA.handle();
-  if (!safeMode) {
+  if (!BootGuard::safeMode()) {
     MQTTHandler::loop();
     MBusReader::loop();
   }
-  recordStableBoot();
+
+  const bool mbusHealthy = MBusReader::stats().successful > 0;
+  BootGuard::loop(WiFiManager::connected(), TimeManager::synchronized(), mbusHealthy);
   updateLed();
   delay(2);
 }
