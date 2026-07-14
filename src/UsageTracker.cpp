@@ -4,6 +4,7 @@
 #include "Config.h"
 #include "CoreLogic.h"
 #include "Logger.h"
+#include "UsageLogic.h"
 
 Preferences UsageTracker::preferences_;
 UsageSnapshot UsageTracker::snapshot_;
@@ -117,20 +118,12 @@ void UsageTracker::addDailyRecord(const char* date, float volumeM3, float energy
   saveHistory();
 }
 
-void UsageTracker::keyForTime(time_t now, char* dayKey, size_t daySize, char* monthKey, size_t monthSize, char* yearKey, size_t yearSize) {
-  struct tm local = {};
-  localtime_r(&now, &local);
-  strftime(dayKey, daySize, "%Y-%m-%d", &local);
-  strftime(monthKey, monthSize, "%Y-%m", &local);
-  strftime(yearKey, yearSize, "%Y", &local);
-}
-
 void UsageTracker::updatePeriods(float volume, float energy, time_t now) {
-  char newDay[11], newMonth[8], newYear[5];
-  keyForTime(now, newDay, sizeof(newDay), newMonth, sizeof(newMonth), newYear, sizeof(newYear));
+  UsageLogic::PeriodKeys keys;
+  if (!UsageLogic::makePeriodKeys(now, keys)) return;
   bool changed = false;
 
-  if (dayBaseline_ < 0.0f || strcmp(dayKey_, newDay) != 0) {
+  if (dayBaseline_ < 0.0f || strcmp(dayKey_, keys.day) != 0) {
     if (dayBaseline_ >= 0.0f && dayEnergyBaseline_ >= 0.0f && dayKey_[0] != '\0') {
       const float completedVolume = previousVolume_ > dayBaseline_ ? previousVolume_ - dayBaseline_ : 0.0f;
       const float completedEnergy = cumulativeEnergyKwh_ > dayEnergyBaseline_ ? cumulativeEnergyKwh_ - dayEnergyBaseline_ : 0.0f;
@@ -138,19 +131,19 @@ void UsageTracker::updatePeriods(float volume, float energy, time_t now) {
     }
     dayBaseline_ = volume;
     dayEnergyBaseline_ = energy;
-    strlcpy(dayKey_, newDay, sizeof(dayKey_));
+    strlcpy(dayKey_, keys.day, sizeof(dayKey_));
     changed = true;
   }
-  if (monthBaseline_ < 0.0f || strcmp(monthKey_, newMonth) != 0) {
+  if (monthBaseline_ < 0.0f || strcmp(monthKey_, keys.month) != 0) {
     monthBaseline_ = volume;
     monthEnergyBaseline_ = energy;
-    strlcpy(monthKey_, newMonth, sizeof(monthKey_));
+    strlcpy(monthKey_, keys.month, sizeof(monthKey_));
     changed = true;
   }
-  if (yearBaseline_ < 0.0f || strcmp(yearKey_, newYear) != 0) {
+  if (yearBaseline_ < 0.0f || strcmp(yearKey_, keys.year) != 0) {
     yearBaseline_ = volume;
     yearEnergyBaseline_ = energy;
-    strlcpy(yearKey_, newYear, sizeof(yearKey_));
+    strlcpy(yearKey_, keys.year, sizeof(yearKey_));
     changed = true;
   }
   if (changed) saveState();
