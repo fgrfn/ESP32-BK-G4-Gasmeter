@@ -1,6 +1,5 @@
 #include "Config.h"
 #include <WiFi.h>
-#include <esp_system.h>
 #include <cstring>
 #include "CoreLogic.h"
 #include "Logger.h"
@@ -76,13 +75,6 @@ void copyJsonSecret(JsonVariantConst value, char* target, size_t targetSize) {
   if (!value.is<const char*>()) return;
   const char* secret = value.as<const char*>();
   if (secret && secret[0]) strlcpy(target, secret, targetSize);
-}
-
-void randomSecret(char* out, size_t size) {
-  static constexpr char alphabet[] = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  if (size < 2) return;
-  for (size_t i = 0; i < size - 1; ++i) out[i] = alphabet[esp_random() % (sizeof(alphabet) - 1)];
-  out[size - 1] = '\0';
 }
 
 ConfigSnapshot captureConfig() {
@@ -208,7 +200,6 @@ void Config::ensureDefaultMqttTopic() {
 void Config::ensureSecrets() {
   if (webUser[0] == '\0') strlcpy(webUser, Constants::DEFAULT_WEB_USER, sizeof(webUser));
   if (webPassword[0] == '\0') strlcpy(webPassword, Constants::DEFAULT_WEB_PASSWORD, sizeof(webPassword));
-  if (otaPassword[0] == '\0') randomSecret(otaPassword, 17);
 }
 
 void Config::migrate(uint32_t fromSchema) {
@@ -221,6 +212,7 @@ void Config::migrate(uint32_t fromSchema) {
     strlcpy(webUser, Constants::DEFAULT_WEB_USER, sizeof(webUser));
     strlcpy(webPassword, Constants::DEFAULT_WEB_PASSWORD, sizeof(webPassword));
   }
+  if (fromSchema < 6) otaPassword[0] = '\0';
 }
 
 bool Config::load() {
@@ -401,7 +393,7 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   JsonObjectConst security = root["security"].as<JsonObjectConst>();
   copyJsonString(security["web_user"], webUser, sizeof(webUser));
   copyJsonSecret(security["web_password"], webPassword, sizeof(webPassword));
-  copyJsonSecret(security["ota_password"], otaPassword, sizeof(otaPassword));
+  copyJsonString(security["ota_password"], otaPassword, sizeof(otaPassword));
   copyJsonString(root["timezone"], timezone, sizeof(timezone));
 
   ensureDefaultMqttTopic();
@@ -458,6 +450,7 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
   security["web_user"] = webUser;
   security["web_password"] = includeSecrets ? webPassword : "";
   security["ota_password"] = includeSecrets ? otaPassword : "";
+  security["ota_password_set"] = otaPassword[0] != '\0';
 
   JsonObject hardware = root["hardware"].to<JsonObject>();
   hardware["mbus_rx_pin"] = Constants::MBUS_RX_PIN;
