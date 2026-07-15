@@ -1,5 +1,25 @@
 # Changelog
 
+## 3.1.2 - unreleased
+
+### Added
+
+- Top-level WebUI tabs for overview, WLAN, MQTT, measurement, security and system diagnostics.
+- Persistent labels, units and helper text for all configuration fields.
+- Visible ArduinoOTA authentication status and an explicit option to remove the stored OTA password.
+
+### Changed
+
+- ArduinoOTA no longer receives an automatically generated password.
+- Fresh installations and factory resets start ArduinoOTA without password authentication.
+- Configuration schema is now `6`; upgrading from an older schema clears the former generated OTA password once.
+- The embedded WebUI asset uses a C++11-compatible internal-linkage declaration, removing the inline-variable compiler warning.
+
+### Security
+
+- Documentation now explains that unauthenticated ArduinoOTA must be restricted to a trusted management or IoT network.
+- An optional user-configured ArduinoOTA password remains persisted in NVS and can be removed from the WebUI.
+
 ## 3.1.1 - unreleased
 
 ### Changed

@@ -40,7 +40,12 @@ void updateLed() {
 void initializeOta() {
   if (!WiFiManager::connected()) return;
   ArduinoOTA.setHostname(Config::hostname);
-  ArduinoOTA.setPassword(Config::otaPassword);
+  if (Config::otaPassword[0] != '\0') {
+    ArduinoOTA.setPassword(Config::otaPassword);
+    Logger::info("ArduinoOTA password authentication enabled");
+  } else {
+    Logger::warn("ArduinoOTA has no password; restrict access to the trusted management network");
+  }
   ArduinoOTA.onStart([] {
     BootGuard::markPlannedRestart("arduino_ota");
     Logger::warn("ArduinoOTA started");
