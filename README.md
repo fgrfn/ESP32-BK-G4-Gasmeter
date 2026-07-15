@@ -13,10 +13,11 @@ ESP32 gateway for reading the M-Bus encoder of a Honeywell/Elster BK-G4 gas mete
 - MQTT with retained JSON state, Last Will, optional TLS and unique per-device base topics
 - Home Assistant discovery with diagnostics, health sensors and optional poll/restart/configuration controls
 - Responsive local dashboard with a mechanical gas-meter-style counter display
-- Full local WebUI for network, MQTT, measurement and security settings
+- Tabbed WebUI for overview, WLAN, MQTT, measurement, security and system diagnostics
 - Config import/export, logs, M-Bus hex dump, Prometheus metrics and manual polling
-- Random setup-AP and ArduinoOTA passwords, HTTP Digest authentication and redacted secrets
+- Random setup-AP password, HTTP Digest authentication and redacted secrets
 - Editable WebUI credentials with documented initial login
+- Optional ArduinoOTA password that can be added or removed through the WebUI
 - NTP-aware accounting: period values are not updated until the clock is synchronized
 - Reset-reason-aware safe mode and delayed ESP-IDF OTA rollback acceptance
 - Captive setup portal, mDNS/hostname support and static IPv4 configuration
@@ -47,7 +48,7 @@ pio run -e esp32dev -t upload
 pio device monitor
 ```
 
-On first boot, the firmware opens an access point named `ESP32-Gas-XXXXXX`. The setup-AP password and the generated ArduinoOTA password are printed to the serial monitor. Open `http://192.168.4.1` and enter Wi-Fi and MQTT settings.
+On first boot, the firmware opens an access point named `ESP32-Gas-XXXXXX`. The randomly generated setup-AP password is printed to the serial monitor. Open `http://192.168.4.1` and enter Wi-Fi and MQTT settings.
 
 Initial WebUI login:
 
@@ -56,25 +57,26 @@ Username: admin
 Password: admin
 ```
 
-Change both values after the first login under **Configuration → Security**. The new username and password are stored in NVS and remain active across normal restarts and OTA updates.
+Change both values after the first login under **Sicherheit**. The new username and password are stored in NVS and remain active across normal restarts and OTA updates.
 
-Firmware 3.1.1 uses configuration schema 5. When upgrading an older schema, the WebUI login is reset once to `admin` / `admin`; credentials changed afterwards are preserved.
+Firmware 3.1.2 uses configuration schema 6. Upgrading from an older schema resets the WebUI login once to `admin` / `admin` and clears the former automatically generated ArduinoOTA password once. Credentials configured afterwards are preserved.
 
-Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset. A factory reset also restores the WebUI login to `admin` / `admin`.
+Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset. A factory reset restores the WebUI login to `admin` / `admin` and leaves the ArduinoOTA password empty.
 
 ## WebUI dashboard
 
-The dashboard is embedded directly in the firmware and does not load external fonts, scripts or cloud resources. It is designed for desktop and mobile browsers and includes:
+The dashboard is embedded directly in the firmware and does not load external fonts, scripts or cloud resources. It is designed for desktop and mobile browsers.
 
-- a mechanical counter-style representation of the gas meter reading
-- black whole-number rollers and red decimal rollers, matching a physical gas meter
-- live status indicators for M-Bus, NTP and MQTT
-- total energy, flow rate and M-Bus success rate
-- daily, monthly and yearly volume and energy values
-- continuous-flow warning state
-- collapsible configuration, import/export and diagnostics sections
+The top navigation contains separate tabs for:
 
-The browser refreshes live values every five seconds. The dashboard and metrics endpoints are read-only; configuration and maintenance actions require authentication outside setup-AP mode.
+- **Übersicht** with the mechanical gas-meter display and live consumption values
+- **WLAN** with DHCP/static IPv4, hostname and timezone settings
+- **MQTT** with broker, topic, Home Assistant and TLS settings
+- **Messung** with polling, offset, energy conversion and continuous-flow warning
+- **Sicherheit** with WebUI credentials and optional ArduinoOTA authentication
+- **System** with import/export, M-Bus polling, diagnostics, logs, restart and factory reset
+
+The meter reading uses black whole-number rollers and red decimal rollers like a physical gas meter. Live values refresh every five seconds. The dashboard and metrics endpoints are read-only; configuration and maintenance actions require authentication outside setup-AP mode.
 
 ## Home Assistant and MQTT
 
@@ -95,16 +97,20 @@ Enable MQTT commands only on a trusted broker. They create Home Assistant contro
 The non-functional browser firmware-upload endpoint was removed. Supported update paths are:
 
 - serial/USB upload through PlatformIO or esptool
-- ArduinoOTA using the generated/configured OTA password
+- ArduinoOTA over the local network
 - a factory image from a tagged GitHub release
+
+ArduinoOTA starts without password authentication after a fresh installation or migration to schema 6. This allows an upload with an empty PlatformIO `--auth` value. A password can be added under **Sicherheit → ArduinoOTA**. Once configured, PlatformIO must send the same value through `GASMETER_OTA_PASSWORD`. The WebUI also provides an explicit option to remove the stored OTA password again.
+
+Unauthenticated ArduinoOTA must only be used in a trusted, restricted management or IoT network. Do not expose TCP/UDP port 3232 to guest, public or Internet-facing networks.
 
 A pending ESP-IDF OTA image is accepted only after the device has passed runtime health checks. Safe mode never accepts a pending image.
 
 ## Security
 
-The dashboard status and Prometheus endpoint are read-only. Configuration, logs, history export, manual polling, reset and restart are authenticated outside setup-AP mode. Passwords are never returned by `/api/config`.
+The dashboard status and Prometheus endpoint are read-only. Configuration, logs, history export, manual polling, reset and restart are authenticated outside setup-AP mode. Passwords are never returned by `/api/config`; it only reports whether an OTA password is configured.
 
-The initial `admin` / `admin` login is intentionally predictable for commissioning and is not suitable for permanent operation. Change it immediately and do not expose the HTTP WebUI directly to the Internet. See [SECURITY.md](SECURITY.md) for TLS, Secure Boot and network-segmentation guidance.
+The initial `admin` / `admin` login is intentionally predictable for commissioning and is not suitable for permanent operation. Change it immediately and do not expose the HTTP WebUI directly to the Internet. See [SECURITY.md](SECURITY.md) for ArduinoOTA, TLS, Secure Boot and network-segmentation guidance.
 
 ## Build and test
 
@@ -123,8 +129,8 @@ Dependencies and the ESP32 platform are pinned in `platformio.ini`. GitHub Actio
 A release is created only for a semantic version tag matching `include/version.h`:
 
 ```bash
-git tag v3.1.1
-git push origin v3.1.1
+git tag v3.1.2
+git push origin v3.1.2
 ```
 
 The workflow publishes:
@@ -140,7 +146,7 @@ The workflow publishes:
 |---|---|---|
 | `GET /api/status` | Live values and health | No |
 | `GET /metrics` | Prometheus text format | No |
-| `GET /api/config` | Redacted configuration | Yes outside setup AP |
+| `GET /api/config` | Redacted configuration and credential status | Yes outside setup AP |
 | `POST /api/config` | Validate, save and restart | Yes outside setup AP |
 | `GET /api/config/export` | Export configuration | Yes |
 | `GET /api/usage.csv` | Completed daily history | Yes |
