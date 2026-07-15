@@ -166,12 +166,10 @@ void WebServerManager::registerRoutes() {
         sendJson(request, response, 400);
         return;
       }
-      BootGuard::markPlannedRestart("configuration_change");
       JsonDocument response;
       response["status"] = "ok";
-      response["restart"] = true;
+      response["restart"] = false;
       sendJson(request, response);
-      restartAt_ = millis() + 1500;
     }
   );
 
