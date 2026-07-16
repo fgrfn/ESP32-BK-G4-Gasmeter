@@ -94,7 +94,8 @@ void setup() {
   MQTTHandler::begin();
   WebServerManager::begin(BootGuard::safeMode());
 
-  Serial.printf("Device ID: %s\nWeb login: %s / %s\n", Config::deviceId, Config::webUser, Config::webPassword);
+  Serial.printf("Device ID: %s\nWeb login: %s\n", Config::deviceId, Config::webAuthEnabled ? "enabled" : "disabled");
+  if (Config::webAuthEnabled) Serial.printf("Web credentials: %s / %s\n", Config::webUser, Config::webPassword);
   Logger::info("Setup complete");
 }
 

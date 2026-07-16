@@ -35,6 +35,7 @@ class Config {
   static String mqttCaCert;
   static bool mqttCommandsEnabled;
 
+  static bool webAuthEnabled;
   static char webUser[33];
   static char webPassword[65];
   static char otaPassword[65];

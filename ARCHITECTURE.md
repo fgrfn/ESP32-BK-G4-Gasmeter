@@ -67,6 +67,8 @@ The warning uses calculated flow plus a grace window for meter resolution and po
 
 Configuration JSON is assembled in a bounded per-request buffer, limited to 8 KiB, and parsed with ArduinoJson. Changes are transactional: validation failures restore the previous in-memory configuration, empty secret fields mean "unchanged", and a successful import is persisted before the API reports success.
 
+Schema 7 adds the persistent `security.web_auth_enabled` switch. It is disabled for fresh installations and factory resets. Existing schema 1-6 installations retain their prior authenticated behavior on upgrade.
+
 A factory reset clears configuration, legacy configuration, usage/history and boot-guard state.
 
 ## MQTT and Home Assistant

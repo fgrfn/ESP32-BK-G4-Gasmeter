@@ -15,8 +15,8 @@ ESP32 gateway for reading the M-Bus encoder of a Honeywell/Elster BK-G4 gas mete
 - Responsive local dashboard with a mechanical gas-meter-style counter display
 - Tabbed WebUI for overview, WLAN, MQTT, measurement, security and system diagnostics
 - Config import/export, logs, M-Bus hex dump, Prometheus metrics and manual polling
-- Random setup-AP password, HTTP Digest authentication and redacted secrets
-- Editable WebUI credentials with documented initial login
+- Random setup-AP password, optional HTTP Digest authentication and redacted secrets
+- Admin login disabled by default, with editable WebUI credentials when enabled
 - Optional ArduinoOTA password that can be added or removed through the WebUI
 - NTP-aware accounting: period values are not updated until the clock is synchronized
 - Reset-reason-aware safe mode and delayed ESP-IDF OTA rollback acceptance
@@ -50,18 +50,18 @@ pio device monitor
 
 On first boot, the firmware opens an access point named `ESP32-Gas-XXXXXX`. The randomly generated setup-AP password is printed to the serial monitor. Open `http://192.168.4.1` and enter Wi-Fi and MQTT settings.
 
-Initial WebUI login:
+The WebUI admin login is disabled by default. It can be enabled under **Sicherheit**. The initial credentials are:
 
 ```text
 Username: admin
 Password: admin
 ```
 
-Change both values after the first login under **Sicherheit**. The new username and password are stored in NVS and remain active across normal restarts and OTA updates.
+Change both values when enabling the login. The setting, username and password are stored in NVS and remain active across normal restarts and OTA updates.
 
-Firmware 3.1.2 uses configuration schema 6. Upgrading from an older schema resets the WebUI login once to `admin` / `admin` and clears the former automatically generated ArduinoOTA password once. Credentials configured afterwards are preserved.
+Firmware 3.1.2 uses configuration schema 7. Fresh installations and factory resets start with the admin login disabled. Existing installations keep authentication enabled during the upgrade so their previous protection and credentials are preserved. Upgrading from a schema older than 6 clears the former automatically generated ArduinoOTA password once.
 
-Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset. A factory reset restores the WebUI login to `admin` / `admin` and leaves the ArduinoOTA password empty.
+Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset. A factory reset disables the WebUI login, restores the stored credentials to `admin` / `admin` for optional later activation and leaves the ArduinoOTA password empty.
 
 ## WebUI dashboard
 
@@ -76,7 +76,7 @@ The top navigation contains separate tabs for:
 - **Sicherheit** with WebUI credentials and optional ArduinoOTA authentication
 - **System** with import/export, M-Bus polling, diagnostics, logs, restart and factory reset
 
-The meter reading uses black whole-number rollers and red decimal rollers like a physical gas meter. Live values refresh every five seconds. The dashboard and metrics endpoints are read-only; configuration and maintenance actions require authentication outside setup-AP mode.
+The meter reading uses black whole-number rollers and red decimal rollers like a physical gas meter. Live values refresh every five seconds. The dashboard and metrics endpoints are read-only. When the optional admin login is enabled, configuration and maintenance actions require authentication outside setup-AP mode.
 
 ## Home Assistant and MQTT
 
@@ -108,9 +108,9 @@ A pending ESP-IDF OTA image is accepted only after the device has passed runtime
 
 ## Security
 
-The dashboard status and Prometheus endpoint are read-only. Configuration, logs, history export, manual polling, reset and restart are authenticated outside setup-AP mode. Passwords are never returned by `/api/config`; it only reports whether an OTA password is configured.
+The dashboard status and Prometheus endpoint are read-only. The optional admin login protects configuration, logs, history export, manual polling, reset and restart outside setup-AP mode. With the default disabled setting, these functions are reachable by any host that can access the WebUI, so network isolation remains important. Passwords are never returned by `/api/config`; it reports only authentication state and whether an OTA password is configured. Configuration exports include secrets only when the admin login is enabled, the request is authenticated and `?secrets=EXPORT` is supplied.
 
-The initial `admin` / `admin` login is intentionally predictable for commissioning and is not suitable for permanent operation. Change it immediately and do not expose the HTTP WebUI directly to the Internet. See [SECURITY.md](SECURITY.md) for ArduinoOTA, TLS, Secure Boot and network-segmentation guidance.
+The stored initial credentials `admin` / `admin` are intentionally predictable and are not suitable for permanent operation. Change them when enabling the admin login, and do not expose the HTTP WebUI directly to the Internet. See [SECURITY.md](SECURITY.md) for ArduinoOTA, TLS, Secure Boot and network-segmentation guidance.
 
 ## Build and test
 
@@ -146,14 +146,14 @@ The workflow publishes:
 |---|---|---|
 | `GET /api/status` | Live values and health | No |
 | `GET /metrics` | Prometheus text format | No |
-| `GET /api/config` | Redacted configuration and credential status | Yes outside setup AP |
-| `POST /api/config` | Validate, save and restart | Yes outside setup AP |
-| `GET /api/config/export` | Export configuration | Yes |
-| `GET /api/usage.csv` | Completed daily history | Yes |
-| `POST /api/mbus/poll` | Trigger a poll | Yes |
-| `GET /api/logs` | Ring-buffer logs | Yes |
-| `POST /api/restart` | Planned restart | Yes |
-| `POST /api/factory-reset` | Reset with `{"confirm":"RESET"}` | Yes, never setup bypass |
+| `GET /api/config` | Redacted configuration and credential status | When admin login is enabled |
+| `POST /api/config` | Validate and save | When admin login is enabled |
+| `GET /api/config/export` | Export configuration | When admin login is enabled |
+| `GET /api/usage.csv` | Completed daily history | When admin login is enabled |
+| `POST /api/mbus/poll` | Trigger a poll | When admin login is enabled |
+| `GET /api/logs` | Ring-buffer logs | When admin login is enabled |
+| `POST /api/restart` | Planned restart | When admin login is enabled |
+| `POST /api/factory-reset` | Reset with `{"confirm":"RESET"}` | When admin login is enabled; no setup bypass |
 
 ## License
 
