@@ -76,6 +76,7 @@ void addUsage(JsonObject target, const UsageSnapshot& usage) {
 }
 
 bool WebServerManager::authorize(AsyncWebServerRequest* request, bool allowSetupAp) {
+  if (!Config::webAuthEnabled) return true;
   if (allowSetupAp && WiFiManager::accessPointMode()) return true;
   if (request->authenticate(Config::webUser, Config::webPassword, AUTH_REALM)) return true;
   request->requestAuthentication(AUTH_REALM, true);
@@ -107,7 +108,7 @@ void WebServerManager::registerRoutes() {
     request->send(200, "application/manifest+json", R"({"name":"ESP32 Gaszähler","short_name":"Gaszähler","start_url":"/","display":"standalone","background_color":"#090b0e","theme_color":"#111418"})");
   });
   server_.on("/sw.js", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "application/javascript", "const C='gas-v311-ui';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.add('/'))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x))))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));");
+    request->send(200, "application/javascript", "const C='gas-v312-ui';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.add('/'))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x))))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));");
   });
 
   server_.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
@@ -175,7 +176,8 @@ void WebServerManager::registerRoutes() {
 
   server_.on("/api/config/export", HTTP_GET, [](AsyncWebServerRequest* request) {
     if (!authorize(request)) return;
-    const bool includeSecrets = request->hasParam("secrets") && request->getParam("secrets")->value() == "EXPORT";
+    const bool includeSecrets = Config::webAuthEnabled && request->hasParam("secrets") &&
+                                request->getParam("secrets")->value() == "EXPORT";
     JsonDocument doc;
     Config::toJson(doc.to<JsonObject>(), includeSecrets);
     AsyncResponseStream* response = request->beginResponseStream("application/json");

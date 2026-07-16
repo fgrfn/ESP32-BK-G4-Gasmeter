@@ -63,7 +63,8 @@ void WiFiManager::startAccessPoint() {
   apMode_ = true;
   Logger::warn("Setup AP active: " + String(apSsid_));
   Serial.printf("Setup AP password: %s\n", apPassword_);
-  Serial.printf("Web user: %s\nWeb password: %s\nOTA password: %s\n", Config::webUser, Config::webPassword, Config::otaPassword);
+  Serial.printf("Web login: %s\nOTA password: %s\n", Config::webAuthEnabled ? "enabled" : "disabled", Config::otaPassword);
+  if (Config::webAuthEnabled) Serial.printf("Web user: %s\nWeb password: %s\n", Config::webUser, Config::webPassword);
 }
 
 void WiFiManager::loop() {

@@ -22,6 +22,7 @@ bool Config::mqttTls = false;
 bool Config::mqttTlsInsecure = false;
 String Config::mqttCaCert;
 bool Config::mqttCommandsEnabled = false;
+bool Config::webAuthEnabled = false;
 char Config::webUser[33] = "admin";
 char Config::webPassword[65] = "admin";
 char Config::otaPassword[65] = "";
@@ -54,6 +55,7 @@ struct ConfigSnapshot {
   bool mqttTlsInsecure;
   String mqttCaCert;
   bool mqttCommandsEnabled;
+  bool webAuthEnabled;
   char webUser[33];
   char webPassword[65];
   char otaPassword[65];
@@ -96,6 +98,7 @@ ConfigSnapshot captureConfig() {
   snapshot.mqttTlsInsecure = Config::mqttTlsInsecure;
   snapshot.mqttCaCert = Config::mqttCaCert;
   snapshot.mqttCommandsEnabled = Config::mqttCommandsEnabled;
+  snapshot.webAuthEnabled = Config::webAuthEnabled;
   strlcpy(snapshot.webUser, Config::webUser, sizeof(snapshot.webUser));
   strlcpy(snapshot.webPassword, Config::webPassword, sizeof(snapshot.webPassword));
   strlcpy(snapshot.otaPassword, Config::otaPassword, sizeof(snapshot.otaPassword));
@@ -128,6 +131,7 @@ void restoreConfig(const ConfigSnapshot& snapshot) {
   Config::mqttTlsInsecure = snapshot.mqttTlsInsecure;
   Config::mqttCaCert = snapshot.mqttCaCert;
   Config::mqttCommandsEnabled = snapshot.mqttCommandsEnabled;
+  Config::webAuthEnabled = snapshot.webAuthEnabled;
   strlcpy(Config::webUser, snapshot.webUser, sizeof(Config::webUser));
   strlcpy(Config::webPassword, snapshot.webPassword, sizeof(Config::webPassword));
   strlcpy(Config::otaPassword, snapshot.otaPassword, sizeof(Config::otaPassword));
@@ -167,6 +171,7 @@ void Config::setDefaults() {
   mqttTlsInsecure = false;
   mqttCaCert = "";
   mqttCommandsEnabled = false;
+  webAuthEnabled = false;
   strlcpy(webUser, Constants::DEFAULT_WEB_USER, sizeof(webUser));
   strlcpy(webPassword, Constants::DEFAULT_WEB_PASSWORD, sizeof(webPassword));
   otaPassword[0] = '\0';
@@ -235,6 +240,7 @@ bool Config::load() {
   mqttTlsInsecure = preferences_.getBool("mqtt_insec", false);
   mqttCaCert = preferences_.getString("mqtt_ca", "");
   mqttCommandsEnabled = preferences_.getBool("mqtt_cmd", false);
+  webAuthEnabled = preferences_.getBool("web_auth", schema > 0);
   preferences_.getString("web_user", webUser, sizeof(webUser));
   preferences_.getString("web_pass", webPassword, sizeof(webPassword));
   preferences_.getString("ota_pass", otaPassword, sizeof(otaPassword));
@@ -276,7 +282,9 @@ bool Config::load() {
     save();
     return false;
   }
-  if (strcmp(webUser, Constants::DEFAULT_WEB_USER) == 0 &&
+  if (!webAuthEnabled) {
+    Logger::warn("WebUI authentication disabled; restrict access to the trusted management network");
+  } else if (strcmp(webUser, Constants::DEFAULT_WEB_USER) == 0 &&
       strcmp(webPassword, Constants::DEFAULT_WEB_PASSWORD) == 0) {
     Logger::warn("WebUI uses default credentials; change them in the Security settings");
   }
@@ -312,6 +320,7 @@ bool Config::save() {
   preferences_.putBool("mqtt_insec", mqttTlsInsecure);
   preferences_.putString("mqtt_ca", mqttCaCert);
   preferences_.putBool("mqtt_cmd", mqttCommandsEnabled);
+  preferences_.putBool("web_auth", webAuthEnabled);
   preferences_.putString("web_user", webUser);
   preferences_.putString("web_pass", webPassword);
   preferences_.putString("ota_pass", otaPassword);
@@ -391,6 +400,7 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   continuousFlowAlertMinutes = gas["continuous_flow_alert_minutes"] | continuousFlowAlertMinutes;
 
   JsonObjectConst security = root["security"].as<JsonObjectConst>();
+  webAuthEnabled = security["web_auth_enabled"] | webAuthEnabled;
   copyJsonString(security["web_user"], webUser, sizeof(webUser));
   copyJsonSecret(security["web_password"], webPassword, sizeof(webPassword));
   copyJsonString(security["ota_password"], otaPassword, sizeof(otaPassword));
@@ -447,6 +457,7 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
   gas["continuous_flow_alert_minutes"] = continuousFlowAlertMinutes;
 
   JsonObject security = root["security"].to<JsonObject>();
+  security["web_auth_enabled"] = webAuthEnabled;
   security["web_user"] = webUser;
   security["web_password"] = includeSecrets ? webPassword : "";
   security["ota_password"] = includeSecrets ? otaPassword : "";

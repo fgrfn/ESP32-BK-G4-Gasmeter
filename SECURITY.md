@@ -2,23 +2,24 @@
 
 ## Threat model
 
-This firmware is intended for a trusted home/IoT network. The WebUI uses HTTP Digest authentication and therefore must not be exposed directly to the public Internet. Put the ESP32 in a dedicated VLAN, restrict management access and use a VPN for remote administration.
+This firmware is intended for a trusted home/IoT network. Optional HTTP Digest authentication can protect WebUI administration, but it is disabled by default and the WebUI must not be exposed directly to the public Internet. Put the ESP32 in a dedicated VLAN, restrict management access and use a VPN for remote administration.
 
 ## Defaults
 
 - Setup AP SSID includes a device suffix.
 - Setup AP password is randomly generated on every setup-AP start and printed only to serial.
-- Initial WebUI credentials are `admin` / `admin` and must be changed under **Sicherheit** after commissioning.
-- WebUI username and password changes are persisted in NVS and survive normal restarts and OTA updates.
+- WebUI admin authentication is disabled after a fresh installation or factory reset.
+- Authentication can be enabled under **Sicherheit**; its initial credentials are `admin` / `admin` and must be changed when enabling it.
+- The authentication setting, username and password are persisted in NVS and survive normal restarts and OTA updates.
 - ArduinoOTA is enabled after Wi-Fi connects and has no password after a fresh installation, factory reset or migration to configuration schema 6.
 - An optional ArduinoOTA password can be added or removed under **Sicherheit → ArduinoOTA**.
-- Sensitive HTTP endpoints require authentication outside setup AP.
-- Factory reset never allows the setup-AP authentication bypass and additionally requires the literal confirmation `RESET`.
+- Sensitive HTTP endpoints require authentication outside setup AP when the optional admin login is enabled.
+- Factory reset does not use the setup-AP bypass when authentication is enabled and additionally requires the literal confirmation `RESET`.
 - API configuration responses contain empty password/CA fields and expose only whether an OTA password is configured.
 - Config export omits secrets by default. Secrets are included only with `?secrets=EXPORT` after authentication.
 - The browser firmware-upload endpoint is intentionally not present.
 
-The predictable initial WebUI credentials and unauthenticated ArduinoOTA default are intended only to simplify local commissioning. Do not expose the device to the Internet or permit access to TCP/UDP port 3232 from guest, public or untrusted VLANs.
+With the admin login disabled, every host that can reach the WebUI can change configuration, view logs and trigger maintenance actions. The predictable initial WebUI credentials and unauthenticated ArduinoOTA default are intended only to simplify local commissioning. Enable the login with a unique password or strictly limit network access. Do not expose the device to the Internet or permit access to TCP/UDP port 3232 from guest, public or untrusted VLANs.
 
 ## MQTT TLS
 
