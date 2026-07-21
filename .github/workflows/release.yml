@@ -65,7 +65,7 @@ jobs:
           fi
           echo "GASMETER_VERSION=${GASMETER_VERSION}" >> "$GITHUB_ENV"
           echo "version=${GASMETER_VERSION}" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install "platformio==6.1.18"
