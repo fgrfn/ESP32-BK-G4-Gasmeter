@@ -126,12 +126,13 @@ Dependencies and the ESP32 platform are pinned in `platformio.ini`. GitHub Actio
 
 ## Releases
 
-A release is created only for a semantic version tag matching `include/version.h`:
+A release is created from the **Release** workflow on `main`. Enter the semantic version once, without a `v` prefix:
 
-```bash
-git tag v3.1.2
-git push origin v3.1.2
-```
+1. Open **Actions → Release → Run workflow**.
+2. Select `main` and enter a version such as `3.2.0`.
+3. Run the workflow.
+
+The workflow requires a version newer than the latest release, serializes release runs, tests and builds the firmware, verifies the embedded version, then creates the matching `v3.2.0` tag, release and artifact names. Normal development builds identify themselves as `dev+<commit>`. Protect the `v*` tag namespace against updates and deletions with a GitHub tag ruleset.
 
 The workflow publishes:
 

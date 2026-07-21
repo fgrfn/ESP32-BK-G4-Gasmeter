@@ -2,6 +2,10 @@
 
 ## 3.1.2 - unreleased
 
+- Generate the firmware version at build time: releases use the single workflow input while development builds use `dev+<commit>`.
+- Add an installed-versus-latest release check to the WebUI system page and derive the service-worker cache key from the embedded firmware version.
+- Replace manually pushed release tags with a validated `main`-only GitHub Actions release workflow.
+
 ### Added
 
 - Top-level WebUI tabs for overview, WLAN, MQTT, measurement, security and system diagnostics.

@@ -1,5 +1,5 @@
 // Service Worker für PWA
-const CACHE_NAME = 'gas-monitor-v2.1.0';
+const CACHE_NAME = 'gas-monitor-ui';
 const urlsToCache = [
   '/',
   '/manifest.json'
