@@ -1,6 +1,6 @@
 # Changelog
 
-## 3.1.2 - unreleased
+## 2.1.3 - 2026-07-21
 
 - Generate the firmware version at build time: releases use the single workflow input while development builds use `dev+<commit>`.
 - Add an installed-versus-latest release check to the WebUI system page and derive the service-worker cache key from the embedded firmware version.
