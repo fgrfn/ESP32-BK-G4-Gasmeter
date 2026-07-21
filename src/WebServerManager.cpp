@@ -97,7 +97,7 @@ void WebServerManager::registerRoutes() {
   server_.on("/", HTTP_GET, [](AsyncWebServerRequest* request) {
     AsyncWebServerResponse* response = request->beginResponse(
         200, "text/html; charset=utf-8", reinterpret_cast<const uint8_t*>(WebUi::INDEX_HTML), sizeof(WebUi::INDEX_HTML) - 1);
-    response->addHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self'");
+    response->addHeader("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; connect-src 'self' https://api.github.com");
     response->addHeader("X-Frame-Options", "DENY");
     response->addHeader("Referrer-Policy", "no-referrer");
     response->addHeader("Cache-Control", "no-store");
@@ -108,7 +108,10 @@ void WebServerManager::registerRoutes() {
     request->send(200, "application/manifest+json", R"({"name":"ESP32 Gaszähler","short_name":"Gaszähler","start_url":"/","display":"standalone","background_color":"#090b0e","theme_color":"#111418"})");
   });
   server_.on("/sw.js", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "application/javascript", "const C='gas-v312-ui';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.add('/'))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x))))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));");
+    String script = "const C='gas-" FIRMWARE_VERSION "-ui';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.add('/'))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x))))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));";
+    AsyncWebServerResponse* response = request->beginResponse(200, "application/javascript", script);
+    response->addHeader("Cache-Control", "no-store");
+    request->send(response);
   });
 
   server_.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {

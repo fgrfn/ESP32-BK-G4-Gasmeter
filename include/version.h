@@ -1,4 +1,7 @@
 #pragma once
 
-#define FIRMWARE_VERSION "3.1.2"
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION "dev"
+#endif
+
 #define CONFIG_SCHEMA_VERSION 7
