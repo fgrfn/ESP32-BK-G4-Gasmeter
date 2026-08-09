@@ -4,6 +4,8 @@ ESP32 gateway for reading the M-Bus encoder of a Honeywell/Elster BK-G4 gas mete
 
 > Based on the original `BK-G4AT2MQTT` project by BennoB666. Version 3 replaces the previous parallel legacy/module implementation with one tested modular firmware.
 
+> **Personal learning project:** Built with the help of OpenAI Codex and Claude Code as a way to experiment, learn and create something useful.
+
 ## Features
 
 - Validated M-Bus long-frame parser with length, stop-byte, checksum and BCD checks
