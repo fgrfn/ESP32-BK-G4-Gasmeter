@@ -85,6 +85,14 @@ bool CoreLogic::isSynchronizedEpoch(int64_t epochSeconds) {
   return epochSeconds >= kSynchronizedEpoch;
 }
 
+bool CoreLogic::isFinite(float value) {
+  return std::isfinite(value);
+}
+
+bool CoreLogic::isFiniteInRange(float value, float minimum, float maximum) {
+  return isFinite(value) && value >= minimum && value <= maximum;
+}
+
 void CoreLogic::makeSafeId(const char* input, char* output, size_t outputSize) {
   if (!output || outputSize == 0) return;
   size_t written = 0;

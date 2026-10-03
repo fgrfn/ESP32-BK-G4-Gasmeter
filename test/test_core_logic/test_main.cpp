@@ -31,6 +31,12 @@ int main() {
   assert(!CoreLogic::isValidIsoDate("26-07-14"));
   assert(!CoreLogic::isSynchronizedEpoch(1577836799));
   assert(CoreLogic::isSynchronizedEpoch(1577836800));
+  assert(CoreLogic::isFiniteInRange(10.5f, 5.0f, 20.0f));
+  assert(CoreLogic::isFinite(-1.0f));
+  assert(!CoreLogic::isFinite(NAN));
+  assert(!CoreLogic::isFiniteInRange(NAN, 5.0f, 20.0f));
+  assert(!CoreLogic::isFiniteInRange(INFINITY, 5.0f, 20.0f));
+  assert(!CoreLogic::isFiniteInRange(4.9f, 5.0f, 20.0f));
 
   char id[32];
   CoreLogic::makeSafeId("Gas Meter #1", id, sizeof(id));

@@ -350,10 +350,11 @@ bool Config::validate(String& error) {
   if (webUser[0] == '\0') { error = "invalid web user"; return false; }
   if (timezone[0] == '\0') { error = "invalid timezone"; return false; }
   if (mqttPort == 0) { error = "invalid MQTT port"; return false; }
-  if (calorificValue < 5.0f || calorificValue > 20.0f) { error = "invalid calorific value"; return false; }
-  if (correctionFactor < 0.5f || correctionFactor > 1.5f) { error = "invalid correction factor"; return false; }
-  if (maxFlowM3h <= 0.0f || maxFlowM3h > 100.0f) { error = "invalid max flow"; return false; }
-  if (continuousFlowThresholdM3h < 0.0f || continuousFlowThresholdM3h > maxFlowM3h) { error = "invalid continuous flow threshold"; return false; }
+  if (!CoreLogic::isFiniteInRange(calorificValue, 5.0f, 20.0f)) { error = "invalid calorific value"; return false; }
+  if (!CoreLogic::isFiniteInRange(correctionFactor, 0.5f, 1.5f)) { error = "invalid correction factor"; return false; }
+  if (!CoreLogic::isFinite(meterOffsetM3)) { error = "invalid meter offset"; return false; }
+  if (!CoreLogic::isFiniteInRange(maxFlowM3h, 0.000001f, 100.0f)) { error = "invalid max flow"; return false; }
+  if (!CoreLogic::isFiniteInRange(continuousFlowThresholdM3h, 0.0f, maxFlowM3h)) { error = "invalid continuous flow threshold"; return false; }
   if (continuousFlowAlertMinutes > 10080UL) { error = "invalid continuous flow duration"; return false; }
   if (staticIpEnabled && (!validIpv4(staticIp) || !validIpv4(gateway) || !validIpv4(subnet) || !validIpv4(dns))) {
     error = "invalid static IPv4 settings";
