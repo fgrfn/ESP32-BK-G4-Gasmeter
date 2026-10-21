@@ -10,7 +10,7 @@ import subprocess
 
 Import("env")
 
-SEMVER = re.compile(r"^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$")
+SEMVER = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
 
 
 def git(project_dir, *args):
@@ -23,14 +23,20 @@ def git(project_dir, *args):
         return None
 
 
+def archive_version(project_dir):
+    """Identify the version in GitHub source archive directory names."""
+    for directory in (os.path.basename(os.path.normpath(project_dir)),
+                      os.path.basename(os.path.dirname(os.path.normpath(project_dir)))):
+        match = re.fullmatch(r"ESP32-BK-G4-Gasmeter-v?([0-9]+\.[0-9]+\.[0-9]+)", directory, re.IGNORECASE)
+        if match and SEMVER.fullmatch(match.group(1)):
+            return f"{match.group(1)}-dev+archive"
+    return "0.0.0-dev+archive"
+
+
 def development_version(project_dir):
     sha = git(project_dir, "rev-parse", "--short=7", "HEAD")
     if not sha:
-        raise RuntimeError(
-            "Cannot determine firmware version: Git is unavailable or the project "
-            "has no Git history. Build from a Git checkout or set "
-            "GASMETER_VERSION explicitly (e.g. 2.1.5)."
-        )
+        return archive_version(project_dir)
 
     # Only version tags participate; unrelated tags must not become versions.
     tags = git(project_dir, "tag", "--merged", "HEAD", "--list", "v[0-9]*")
