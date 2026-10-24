@@ -392,7 +392,9 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   }
 
   JsonObjectConst gas = root["gas"].as<JsonObjectConst>();
-  pollIntervalMs = (gas["poll_interval_seconds"] | (pollIntervalMs / 1000UL)) * 1000UL;
+  const int64_t pollIntervalSeconds =
+      gas["poll_interval_seconds"] | static_cast<int64_t>(pollIntervalMs / 1000UL);
+  pollIntervalMs = CoreLogic::pollIntervalSecondsToMs(pollIntervalSeconds);
   calorificValue = gas["calorific_value"] | calorificValue;
   correctionFactor = gas["correction_factor"] | correctionFactor;
   meterOffsetM3 = gas["meter_offset_m3"] | meterOffsetM3;
