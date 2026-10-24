@@ -33,17 +33,25 @@ void UsageTracker::begin() {
 
 void UsageTracker::loadState() {
   preferences_.begin("usage", true);
-  dayBaseline_ = preferences_.getFloat("day_base", -1.0f);
-  monthBaseline_ = preferences_.getFloat("month_base", -1.0f);
-  yearBaseline_ = preferences_.getFloat("year_base", -1.0f);
-  dayEnergyBaseline_ = preferences_.getFloat("day_energy", -1.0f);
-  monthEnergyBaseline_ = preferences_.getFloat("month_energy", -1.0f);
-  yearEnergyBaseline_ = preferences_.getFloat("year_energy", -1.0f);
+  dayBaseline_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("day_base", -1.0f));
+  monthBaseline_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("month_base", -1.0f));
+  yearBaseline_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("year_base", -1.0f));
+  dayEnergyBaseline_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("day_energy", -1.0f));
+  monthEnergyBaseline_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("month_energy", -1.0f));
+  yearEnergyBaseline_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("year_energy", -1.0f));
   preferences_.getString("day_key", dayKey_, sizeof(dayKey_));
   preferences_.getString("month_key", monthKey_, sizeof(monthKey_));
   preferences_.getString("year_key", yearKey_, sizeof(yearKey_));
-  previousVolume_ = preferences_.getFloat("last_volume", -1.0f);
-  cumulativeEnergyKwh_ = preferences_.getFloat("energy_kwh", -1.0f);
+  previousVolume_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("last_volume", -1.0f));
+  cumulativeEnergyKwh_ = UsageLogic::normalizePersistedCounter(
+      preferences_.getFloat("energy_kwh", -1.0f));
   preferences_.end();
 
   preferences_.begin("usage", false);
@@ -84,10 +92,13 @@ void UsageTracker::loadHistory() {
     if (dailyHistoryCount_ >= 31) break;
     const char* date = value["date"] | "";
     if (!CoreLogic::isValidIsoDate(date)) continue;
+    const float volumeM3 = value["volume_m3"] | -1.0f;
+    const float energyKwh = value["energy_kwh"] | -1.0f;
+    if (!UsageLogic::isValidDailyRecord(volumeM3, energyKwh)) continue;
     DailyUsageRecord& record = dailyHistory_[dailyHistoryCount_++];
     strlcpy(record.date, date, sizeof(record.date));
-    record.volumeM3 = value["volume_m3"] | 0.0f;
-    record.energyKwh = value["energy_kwh"] | 0.0f;
+    record.volumeM3 = volumeM3;
+    record.energyKwh = energyKwh;
   }
 }
 
