@@ -1,4 +1,5 @@
 #include <cassert>
+#include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -35,5 +36,14 @@ int main() {
   assert(UsageLogic::makePeriodKeys(utc(2026, 12, 31, 23, 30), keys));
   assert(std::strcmp(keys.day, "2027-01-01") == 0);
   assert(std::strcmp(keys.year, "2027") == 0);
+
+  assert(UsageLogic::normalizePersistedCounter(0.0f) == 0.0f);
+  assert(UsageLogic::normalizePersistedCounter(123.456f) == 123.456f);
+  assert(UsageLogic::normalizePersistedCounter(-5.0f) == -1.0f);
+  assert(UsageLogic::normalizePersistedCounter(NAN) == -1.0f);
+  assert(UsageLogic::normalizePersistedCounter(INFINITY) == -1.0f);
+  assert(UsageLogic::isValidDailyRecord(1.5f, 15.0f));
+  assert(!UsageLogic::isValidDailyRecord(-1.0f, 15.0f));
+  assert(!UsageLogic::isValidDailyRecord(1.5f, NAN));
   return 0;
 }

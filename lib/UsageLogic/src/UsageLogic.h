@@ -11,4 +11,6 @@ struct PeriodKeys {
 };
 
 bool makePeriodKeys(std::time_t timestamp, PeriodKeys& keys);
+float normalizePersistedCounter(float value);
+bool isValidDailyRecord(float volumeM3, float energyKwh);
 }
