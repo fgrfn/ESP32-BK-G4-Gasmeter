@@ -19,6 +19,12 @@ uint32_t CoreLogic::clampPollIntervalMs(uint32_t value) {
   return value;
 }
 
+uint32_t CoreLogic::pollIntervalSecondsToMs(int64_t seconds) {
+  if (seconds <= static_cast<int64_t>(kMinPollMs / 1000UL)) return kMinPollMs;
+  if (seconds >= static_cast<int64_t>(kMaxPollMs / 1000UL)) return kMaxPollMs;
+  return static_cast<uint32_t>(seconds) * 1000UL;
+}
+
 float CoreLogic::calculateFlowM3h(float previousVolume, float currentVolume, uint32_t elapsedSeconds, float maxFlowM3h) {
   if (!std::isfinite(previousVolume) || !std::isfinite(currentVolume) || elapsedSeconds == 0) return 0.0f;
   const float delta = positiveDelta(previousVolume, currentVolume, 0.0f);
