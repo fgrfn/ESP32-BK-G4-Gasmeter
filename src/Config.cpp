@@ -79,6 +79,14 @@ void copyJsonSecret(JsonVariantConst value, char* target, size_t targetSize) {
   if (secret && secret[0]) strlcpy(target, secret, targetSize);
 }
 
+bool validateJsonStringLength(JsonVariantConst value, size_t targetSize,
+                              const char* field, String& error) {
+  if (!value.is<const char*>()) return true;
+  if (CoreLogic::stringFitsBuffer(value.as<const char*>(), targetSize)) return true;
+  error = String(field) + " is too long";
+  return false;
+}
+
 ConfigSnapshot captureConfig() {
   ConfigSnapshot snapshot = {};
   strlcpy(snapshot.ssid, Config::ssid, sizeof(snapshot.ssid));
@@ -368,6 +376,26 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   const ConfigSnapshot previous = captureConfig();
 
   JsonObjectConst wifi = root["wifi"].as<JsonObjectConst>();
+  JsonObjectConst mqtt = root["mqtt"].as<JsonObjectConst>();
+  JsonObjectConst security = root["security"].as<JsonObjectConst>();
+  if (!validateJsonStringLength(wifi["ssid"], sizeof(ssid), "wifi.ssid", error) ||
+      !validateJsonStringLength(wifi["password"], sizeof(wifiPassword), "wifi.password", error) ||
+      !validateJsonStringLength(wifi["hostname"], sizeof(hostname), "wifi.hostname", error) ||
+      !validateJsonStringLength(wifi["static_ip"], sizeof(staticIp), "wifi.static_ip", error) ||
+      !validateJsonStringLength(wifi["gateway"], sizeof(gateway), "wifi.gateway", error) ||
+      !validateJsonStringLength(wifi["subnet"], sizeof(subnet), "wifi.subnet", error) ||
+      !validateJsonStringLength(wifi["dns"], sizeof(dns), "wifi.dns", error) ||
+      !validateJsonStringLength(mqtt["host"], sizeof(mqttHost), "mqtt.host", error) ||
+      !validateJsonStringLength(mqtt["user"], sizeof(mqttUser), "mqtt.user", error) ||
+      !validateJsonStringLength(mqtt["password"], sizeof(mqttPassword), "mqtt.password", error) ||
+      !validateJsonStringLength(mqtt["base_topic"], sizeof(mqttBaseTopic), "mqtt.base_topic", error) ||
+      !validateJsonStringLength(security["web_user"], sizeof(webUser), "security.web_user", error) ||
+      !validateJsonStringLength(security["web_password"], sizeof(webPassword), "security.web_password", error) ||
+      !validateJsonStringLength(security["ota_password"], sizeof(otaPassword), "security.ota_password", error) ||
+      !validateJsonStringLength(root["timezone"], sizeof(timezone), "timezone", error)) {
+    return false;
+  }
+
   copyJsonString(wifi["ssid"], ssid, sizeof(ssid));
   copyJsonSecret(wifi["password"], wifiPassword, sizeof(wifiPassword));
   copyJsonString(wifi["hostname"], hostname, sizeof(hostname));
@@ -377,7 +405,6 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   copyJsonString(wifi["subnet"], subnet, sizeof(subnet));
   copyJsonString(wifi["dns"], dns, sizeof(dns));
 
-  JsonObjectConst mqtt = root["mqtt"].as<JsonObjectConst>();
   copyJsonString(mqtt["host"], mqttHost, sizeof(mqttHost));
   mqttPort = mqtt["port"] | mqttPort;
   copyJsonString(mqtt["user"], mqttUser, sizeof(mqttUser));
@@ -402,7 +429,6 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   continuousFlowThresholdM3h = gas["continuous_flow_threshold_m3h"] | continuousFlowThresholdM3h;
   continuousFlowAlertMinutes = gas["continuous_flow_alert_minutes"] | continuousFlowAlertMinutes;
 
-  JsonObjectConst security = root["security"].as<JsonObjectConst>();
   webAuthEnabled = security["web_auth_enabled"] | webAuthEnabled;
   copyJsonString(security["web_user"], webUser, sizeof(webUser));
   copyJsonSecret(security["web_password"], webPassword, sizeof(webPassword));

@@ -11,6 +11,7 @@ float positiveDelta(float previousVolume, float currentVolume, float tolerance =
 bool isValidHostname(const char* value);
 bool isValidIsoDate(const char* value);
 bool isValidMqttBaseTopic(const char* value);
+bool stringFitsBuffer(const char* value, size_t bufferSize);
 bool isSynchronizedEpoch(int64_t epochSeconds);
 bool isFinite(float value);
 bool isFiniteInRange(float value, float minimum, float maximum);
