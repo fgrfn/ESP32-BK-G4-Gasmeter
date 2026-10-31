@@ -25,6 +25,11 @@ int main() {
   assert(!CoreLogic::isValidMqttBaseTopic("/gasmeter"));
   assert(!CoreLogic::isValidMqttBaseTopic("gasmeter/#"));
   assert(!CoreLogic::isValidMqttBaseTopic("gasmeter//device"));
+  assert(CoreLogic::isExactMqttCommandTopic("gasmeter/device", "poll", "gasmeter/device/command/poll"));
+  assert(!CoreLogic::isExactMqttCommandTopic("gasmeter/device", "poll", "gasmeter/device/command/manual/poll"));
+  assert(!CoreLogic::isExactMqttCommandTopic("gasmeter/device", "poll", "other/gasmeter/device/command/poll"));
+  assert(!CoreLogic::isExactMqttCommandTopic("gasmeter/device", "poll", "gasmeter/device/command/poll/extra"));
+  assert(!CoreLogic::isExactMqttCommandTopic(nullptr, "poll", "gasmeter/device/command/poll"));
 
   assert(CoreLogic::isValidIsoDate("1970-01-01"));
   assert(CoreLogic::isValidIsoDate("2024-02-29"));
