@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include "BootGuard.h"
 #include "Config.h"
+#include "CoreLogic.h"
 #include "Logger.h"
 #include "MBusReader.h"
 #include "TimeManager.h"
@@ -338,35 +339,38 @@ void MQTTHandler::callback(char* topicValue, uint8_t* payload, unsigned int leng
   value.reserve(length);
   for (unsigned int i = 0; i < length; ++i) value += static_cast<char>(payload[i]);
   value.trim();
+  const auto isCommand = [&](const char* command) {
+    return CoreLogic::isExactMqttCommandTopic(Config::mqttBaseTopic, command, commandTopic.c_str());
+  };
 
-  if (commandTopic.endsWith("/poll")) {
-    MBusReader::trigger();
+  if (isCommand("poll")) {
+    if (value == "PRESS") MBusReader::trigger();
     return;
   }
-  if (commandTopic.endsWith("/restart")) {
-    restartRequested_ = true;
+  if (isCommand("restart")) {
+    if (value == "PRESS") restartRequested_ = true;
     return;
   }
 
   float parsed = 0.0f;
   if (!parseFloatValue(value, parsed)) return;
   bool changed = false;
-  if (commandTopic.endsWith("/calorific_value") && parsed >= 5.0f && parsed <= 20.0f) {
+  if (isCommand("calorific_value") && parsed >= 5.0f && parsed <= 20.0f) {
     Config::calorificValue = parsed;
     changed = true;
-  } else if (commandTopic.endsWith("/correction_factor") && parsed >= 0.5f && parsed <= 1.5f) {
+  } else if (isCommand("correction_factor") && parsed >= 0.5f && parsed <= 1.5f) {
     Config::correctionFactor = parsed;
     changed = true;
-  } else if (commandTopic.endsWith("/poll_interval_seconds") && parsed >= 10.0f && parsed <= 3600.0f) {
+  } else if (isCommand("poll_interval_seconds") && parsed >= 10.0f && parsed <= 3600.0f) {
     Config::pollIntervalMs = static_cast<uint32_t>(parsed * 1000.0f);
     changed = true;
-  } else if (commandTopic.endsWith("/max_flow_m3h") && parsed > 0.0f && parsed <= 100.0f) {
+  } else if (isCommand("max_flow_m3h") && parsed > 0.0f && parsed <= 100.0f) {
     Config::maxFlowM3h = parsed;
     changed = true;
-  } else if (commandTopic.endsWith("/continuous_flow_threshold_m3h") && parsed >= 0.0f && parsed <= Config::maxFlowM3h) {
+  } else if (isCommand("continuous_flow_threshold_m3h") && parsed >= 0.0f && parsed <= Config::maxFlowM3h) {
     Config::continuousFlowThresholdM3h = parsed;
     changed = true;
-  } else if (commandTopic.endsWith("/continuous_flow_alert_minutes") && parsed >= 0.0f && parsed <= 10080.0f) {
+  } else if (isCommand("continuous_flow_alert_minutes") && parsed >= 0.0f && parsed <= 10080.0f) {
     Config::continuousFlowAlertMinutes = static_cast<uint32_t>(parsed);
     changed = true;
   }

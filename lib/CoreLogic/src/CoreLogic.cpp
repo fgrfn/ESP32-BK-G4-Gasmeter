@@ -87,6 +87,20 @@ bool CoreLogic::isValidMqttBaseTopic(const char* value) {
   return true;
 }
 
+bool CoreLogic::isExactMqttCommandTopic(const char* baseTopic, const char* command,
+                                        const char* receivedTopic) {
+  if (!baseTopic || !command || !receivedTopic) return false;
+  const size_t baseLength = std::strlen(baseTopic);
+  const size_t commandLength = std::strlen(command);
+  constexpr char separator[] = "/command/";
+  constexpr size_t separatorLength = sizeof(separator) - 1;
+  if (baseLength == 0 || commandLength == 0 ||
+      std::strlen(receivedTopic) != baseLength + separatorLength + commandLength) return false;
+  return std::strncmp(receivedTopic, baseTopic, baseLength) == 0 &&
+         std::strncmp(receivedTopic + baseLength, separator, separatorLength) == 0 &&
+         std::strcmp(receivedTopic + baseLength + separatorLength, command) == 0;
+}
+
 bool CoreLogic::isSynchronizedEpoch(int64_t epochSeconds) {
   return epochSeconds >= kSynchronizedEpoch;
 }
