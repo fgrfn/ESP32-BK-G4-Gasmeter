@@ -87,6 +87,10 @@ bool CoreLogic::isValidMqttBaseTopic(const char* value) {
   return true;
 }
 
+bool CoreLogic::isValidTcpPort(int64_t value) {
+  return value >= 1 && value <= 65535;
+}
+
 bool CoreLogic::isSynchronizedEpoch(int64_t epochSeconds) {
   return epochSeconds >= kSynchronizedEpoch;
 }
