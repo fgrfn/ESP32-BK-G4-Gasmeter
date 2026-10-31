@@ -87,6 +87,10 @@ bool CoreLogic::isValidMqttBaseTopic(const char* value) {
   return true;
 }
 
+bool CoreLogic::stringFitsBuffer(const char* value, size_t bufferSize) {
+  return value && bufferSize > 0 && std::strlen(value) < bufferSize;
+}
+
 bool CoreLogic::isSynchronizedEpoch(int64_t epochSeconds) {
   return epochSeconds >= kSynchronizedEpoch;
 }

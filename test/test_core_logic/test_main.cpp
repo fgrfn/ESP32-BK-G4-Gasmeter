@@ -25,6 +25,10 @@ int main() {
   assert(!CoreLogic::isValidMqttBaseTopic("/gasmeter"));
   assert(!CoreLogic::isValidMqttBaseTopic("gasmeter/#"));
   assert(!CoreLogic::isValidMqttBaseTopic("gasmeter//device"));
+  assert(CoreLogic::stringFitsBuffer("1234", 5));
+  assert(!CoreLogic::stringFitsBuffer("12345", 5));
+  assert(!CoreLogic::stringFitsBuffer(nullptr, 5));
+  assert(!CoreLogic::stringFitsBuffer("", 0));
 
   assert(CoreLogic::isValidIsoDate("1970-01-01"));
   assert(CoreLogic::isValidIsoDate("2024-02-29"));
