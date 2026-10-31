@@ -379,7 +379,13 @@ bool Config::importJson(JsonVariantConst root, String& error) {
 
   JsonObjectConst mqtt = root["mqtt"].as<JsonObjectConst>();
   copyJsonString(mqtt["host"], mqttHost, sizeof(mqttHost));
-  mqttPort = mqtt["port"] | mqttPort;
+  const int64_t importedMqttPort = mqtt["port"] | static_cast<int64_t>(mqttPort);
+  if (!CoreLogic::isValidTcpPort(importedMqttPort)) {
+    restoreConfig(previous);
+    error = "invalid MQTT port";
+    return false;
+  }
+  mqttPort = static_cast<uint16_t>(importedMqttPort);
   copyJsonString(mqtt["user"], mqttUser, sizeof(mqttUser));
   copyJsonSecret(mqtt["password"], mqttPassword, sizeof(mqttPassword));
   copyJsonString(mqtt["base_topic"], mqttBaseTopic, sizeof(mqttBaseTopic));
