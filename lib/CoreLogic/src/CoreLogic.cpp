@@ -101,6 +101,10 @@ bool CoreLogic::isExactMqttCommandTopic(const char* baseTopic, const char* comma
          std::strcmp(receivedTopic + baseLength + separatorLength, command) == 0;
 }
 
+bool CoreLogic::stringFitsBuffer(const char* value, size_t bufferSize) {
+  return value && bufferSize > 0 && std::strlen(value) < bufferSize;
+}
+
 bool CoreLogic::isValidTcpPort(int64_t value) {
   return value >= 1 && value <= 65535;
 }
