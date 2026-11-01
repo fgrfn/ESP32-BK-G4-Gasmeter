@@ -91,6 +91,10 @@ bool CoreLogic::stringFitsBuffer(const char* value, size_t bufferSize) {
   return value && bufferSize > 0 && std::strlen(value) < bufferSize;
 }
 
+bool CoreLogic::isValidTcpPort(int64_t value) {
+  return value >= 1 && value <= 65535;
+}
+
 bool CoreLogic::isSynchronizedEpoch(int64_t epochSeconds) {
   return epochSeconds >= kSynchronizedEpoch;
 }

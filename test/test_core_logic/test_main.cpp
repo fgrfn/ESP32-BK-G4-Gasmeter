@@ -29,6 +29,12 @@ int main() {
   assert(!CoreLogic::stringFitsBuffer("12345", 5));
   assert(!CoreLogic::stringFitsBuffer(nullptr, 5));
   assert(!CoreLogic::stringFitsBuffer("", 0));
+  assert(!CoreLogic::isValidTcpPort(-1));
+  assert(!CoreLogic::isValidTcpPort(0));
+  assert(CoreLogic::isValidTcpPort(1));
+  assert(CoreLogic::isValidTcpPort(65535));
+  assert(!CoreLogic::isValidTcpPort(65536));
+  assert(!CoreLogic::isValidTcpPort(65537));
 
   assert(CoreLogic::isValidIsoDate("1970-01-01"));
   assert(CoreLogic::isValidIsoDate("2024-02-29"));

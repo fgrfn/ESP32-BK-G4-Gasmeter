@@ -12,6 +12,7 @@ bool isValidHostname(const char* value);
 bool isValidIsoDate(const char* value);
 bool isValidMqttBaseTopic(const char* value);
 bool stringFitsBuffer(const char* value, size_t bufferSize);
+bool isValidTcpPort(int64_t value);
 bool isSynchronizedEpoch(int64_t epochSeconds);
 bool isFinite(float value);
 bool isFiniteInRange(float value, float minimum, float maximum);
