@@ -101,6 +101,10 @@ bool CoreLogic::isExactMqttCommandTopic(const char* baseTopic, const char* comma
          std::strcmp(receivedTopic + baseLength + separatorLength, command) == 0;
 }
 
+bool CoreLogic::isValidTcpPort(int64_t value) {
+  return value >= 1 && value <= 65535;
+}
+
 bool CoreLogic::isSynchronizedEpoch(int64_t epochSeconds) {
   return epochSeconds >= kSynchronizedEpoch;
 }
