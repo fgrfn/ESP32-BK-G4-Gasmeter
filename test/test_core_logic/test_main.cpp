@@ -25,6 +25,10 @@ int main() {
   assert(!CoreLogic::isValidMqttBaseTopic("/gasmeter"));
   assert(!CoreLogic::isValidMqttBaseTopic("gasmeter/#"));
   assert(!CoreLogic::isValidMqttBaseTopic("gasmeter//device"));
+  assert(CoreLogic::stringFitsBuffer("1234", 5));
+  assert(!CoreLogic::stringFitsBuffer("12345", 5));
+  assert(!CoreLogic::stringFitsBuffer(nullptr, 5));
+  assert(!CoreLogic::stringFitsBuffer("", 0));
   assert(!CoreLogic::isValidTcpPort(-1));
   assert(!CoreLogic::isValidTcpPort(0));
   assert(CoreLogic::isValidTcpPort(1));
