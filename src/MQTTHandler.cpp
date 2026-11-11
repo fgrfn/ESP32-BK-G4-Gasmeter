@@ -317,7 +317,7 @@ void MQTTHandler::sendDiscovery() {
     sendNumberDiscovery("correction_factor", "Correction factor", state.c_str(), topic("command/correction_factor").c_str(), 0.5f, 1.5f, 0.0001f, "");
     sendNumberDiscovery("poll_interval_seconds", "Poll interval", state.c_str(), topic("command/poll_interval_seconds").c_str(), 10.0f, 3600.0f, 1.0f, "s");
     sendNumberDiscovery("max_flow_m3h", "Maximum plausible flow", state.c_str(), topic("command/max_flow_m3h").c_str(), 0.1f, 100.0f, 0.1f, "m³/h");
-    sendNumberDiscovery("continuous_flow_threshold_m3h", "Continuous flow threshold", state.c_str(), topic("command/continuous_flow_threshold_m3h").c_str(), 0.0f, 10.0f, 0.001f, "m³/h");
+    sendNumberDiscovery("continuous_flow_threshold_m3h", "Continuous flow threshold", state.c_str(), topic("command/continuous_flow_threshold_m3h").c_str(), 0.0f, Config::maxFlowM3h, 0.001f, "m³/h");
     sendNumberDiscovery("continuous_flow_alert_minutes", "Continuous flow warning delay", state.c_str(), topic("command/continuous_flow_alert_minutes").c_str(), 0.0f, 10080.0f, 1.0f, "min");
     sendButtonDiscovery("poll", "Poll M-Bus now", topic("command/poll").c_str(), "PRESS");
     sendButtonDiscovery("restart", "Restart", topic("command/restart").c_str(), "PRESS", "restart");
