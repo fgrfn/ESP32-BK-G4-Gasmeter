@@ -267,7 +267,10 @@ bool Config::load() {
     preferences_.getString("password", wifiPassword, sizeof(wifiPassword));
     preferences_.getString("hostname", hostname, sizeof(hostname));
     preferences_.getString("mqtt_server", mqttHost, sizeof(mqttHost));
-    mqttPort = preferences_.getInt("mqtt_port", 1883);
+    const int64_t legacyMqttPort = preferences_.getInt("mqtt_port", 1883);
+    mqttPort = CoreLogic::isValidTcpPort(legacyMqttPort)
+        ? static_cast<uint16_t>(legacyMqttPort)
+        : 1883;
     preferences_.getString("mqtt_user", mqttUser, sizeof(mqttUser));
     preferences_.getString("mqtt_pass", mqttPassword, sizeof(mqttPassword));
     preferences_.getString("mqtt_topic", mqttBaseTopic, sizeof(mqttBaseTopic));

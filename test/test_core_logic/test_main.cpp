@@ -40,6 +40,8 @@ int main() {
   assert(CoreLogic::isValidTcpPort(65535));
   assert(!CoreLogic::isValidTcpPort(65536));
   assert(!CoreLogic::isValidTcpPort(65537));
+  assert(!CoreLogic::isValidTcpPort(-2147483648LL));
+  assert(!CoreLogic::isValidTcpPort(2147483647LL));
 
   assert(CoreLogic::isValidIsoDate("1970-01-01"));
   assert(CoreLogic::isValidIsoDate("2024-02-29"));
