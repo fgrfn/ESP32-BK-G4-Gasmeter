@@ -25,7 +25,7 @@ class MQTTHandler {
   static void addDevice(JsonObject device);
   static void sendSensorDiscovery(const char* objectId, const char* name, const char* stateTopic,
                                   const char* unit, const char* deviceClass, const char* stateClass,
-                                  bool diagnostic = false);
+                                  bool diagnostic = false, int displayPrecision = -1);
   static void sendBinaryDiscovery(const char* objectId, const char* name, const char* stateTopic,
                                   const char* valueTemplate, const char* payloadOn, const char* payloadOff,
                                   bool diagnostic = false);

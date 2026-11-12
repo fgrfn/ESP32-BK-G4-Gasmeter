@@ -188,7 +188,7 @@ void MQTTHandler::addDevice(JsonObject device) {
 
 void MQTTHandler::sendSensorDiscovery(const char* objectId, const char* name, const char* stateTopic,
                                       const char* unit, const char* deviceClass, const char* stateClass,
-                                      bool diagnostic) {
+                                      bool diagnostic, int displayPrecision) {
   JsonDocument doc;
   const String unique = String(Config::deviceId) + '_' + objectId;
   doc["name"] = name;
@@ -199,6 +199,7 @@ void MQTTHandler::sendSensorDiscovery(const char* objectId, const char* name, co
   if (unit && unit[0]) doc["unit_of_measurement"] = unit;
   if (deviceClass && deviceClass[0]) doc["device_class"] = deviceClass;
   if (stateClass && stateClass[0]) doc["state_class"] = stateClass;
+  if (displayPrecision >= 0) doc["suggested_display_precision"] = displayPrecision;
   if (diagnostic) doc["entity_category"] = "diagnostic";
   doc["availability_topic"] = topic("availability");
   addDevice(doc["device"].to<JsonObject>());
@@ -288,7 +289,7 @@ void MQTTHandler::sendDiscovery() {
 
   sendSensorDiscovery("volume_m3", "Gas meter", state.c_str(), "m³", "gas", "total_increasing");
   sendSensorDiscovery("energy_kwh", "Gas energy", state.c_str(), "kWh", "energy", "total_increasing");
-  sendSensorDiscovery("flow_m3h", "Gas flow", state.c_str(), "m³/h", "volume_flow_rate", "measurement");
+  sendSensorDiscovery("flow_m3h", "Gas flow", state.c_str(), "m³/h", "volume_flow_rate", "measurement", false, 4);
   sendSensorDiscovery("day_m3", "Gas today", state.c_str(), "m³", "gas", "total_increasing");
   sendSensorDiscovery("month_m3", "Gas this month", state.c_str(), "m³", "gas", "total_increasing");
   sendSensorDiscovery("year_m3", "Gas this year", state.c_str(), "m³", "gas", "total_increasing");

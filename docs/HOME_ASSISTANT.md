@@ -12,6 +12,8 @@ gasmeter/esp32_gas_aabbcc/availability
 
 Entities include total and period volume/energy, flow, Wi-Fi and M-Bus diagnostics, time synchronization, continuous-flow warning and optional configuration controls.
 
+The **Gas flow** entity suggests four decimal places in m³/h. An explicit display precision selected in the Home Assistant entity settings takes precedence.
+
 Enable `MQTT commands` only when the broker and Home Assistant installation are trusted. It exposes poll/restart buttons and number entities for measurement settings.
 
 ## Gas costs
