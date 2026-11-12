@@ -72,7 +72,7 @@ The dashboard is embedded directly in the firmware and does not load external fo
 The top navigation contains separate tabs for:
 
 - **Übersicht** with the mechanical gas-meter display and live consumption values
-- **WLAN** with DHCP/static IPv4, hostname and timezone settings
+- **WLAN** with DHCP/static IPv4, hostname and timezone presets such as Berlin. Use **Benutzerdefiniert** for a custom rule. Timezone changes take effect after a restart.
 - **MQTT** with broker, topic, Home Assistant and TLS settings
 - **Messung** with polling, offset, energy conversion and continuous-flow warning
 - **Sicherheit** with WebUI credentials and optional ArduinoOTA authentication
