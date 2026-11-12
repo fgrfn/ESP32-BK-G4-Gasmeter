@@ -50,7 +50,7 @@ energy increment = positive volume delta × calorific value × correction factor
 
 Cumulative energy is monotonic. Changes to calorific value or correction factor affect only later increments. A decreasing meter total is treated as replacement/reset and does not reduce cumulative energy.
 
-Daily, monthly and yearly volume/energy baselines are persisted. Completed days are retained as a 31-record ring and exported as CSV. The firmware intentionally contains no tariff or gas-cost model.
+Daily, monthly and yearly volume/energy baselines are persisted with the corresponding meter and energy totals. The first synchronized reading in a new day closes both counters for the previous recorded day and sets the new baselines. When that reading indicates a meter replacement, the old meter's final reading closes the previous day's volume. Completed days are retained as a 31-record ring and exported as CSV. The firmware intentionally contains no tariff or gas-cost model.
 
 ## Continuous-flow warning
 
