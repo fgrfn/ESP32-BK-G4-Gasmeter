@@ -9,6 +9,12 @@
 
 The workflow validates that the version is newer than the latest release, prevents concurrent releases, runs the tests, injects the same version into the firmware, verifies the compiled binary and derives the tag, release name and artifact names from that one input. Configure a GitHub tag ruleset for `v*` that blocks tag updates and deletions so released versions cannot be moved later.
 
+## Attach firmware files to an existing release
+
+In **Actions → Release → Run workflow**, enter the existing release version and enable **Attach firmware files to an existing release from its tag**. The workflow builds the tagged source, stages the tested package as a workflow artifact and uploads missing files to that release. If the upload job fails, rerun that job to reuse the same package. Matching files are reused and conflicting files stop the upload.
+
+## Using the release files
+
 Normal local and pull-request builds are labelled `dev+<commit>`. To reproduce a release-labelled build locally, set `GASMETER_VERSION` explicitly:
 
 ```bash

@@ -106,7 +106,7 @@ The non-functional browser firmware-upload endpoint was removed. Supported updat
 
 - serial/USB upload through PlatformIO or esptool
 - ArduinoOTA over the local network
-- a factory image from a tagged GitHub release
+- a factory image from a tagged GitHub release for initial flashing over USB
 
 ArduinoOTA starts without password authentication after a fresh installation or migration to schema 6. This allows an upload with an empty PlatformIO `--auth` value. A password can be added under **Sicherheit → ArduinoOTA**. Once configured, PlatformIO must send the same value through `GASMETER_OTA_PASSWORD`. The WebUI also provides an explicit option to remove the stored OTA password again.
 
@@ -141,6 +141,8 @@ A release is created from the **Release** workflow on `main`. Enter the semantic
 3. Run the workflow.
 
 The workflow requires a version newer than the latest release, serializes release runs, tests and builds the firmware, verifies the embedded version, then creates the matching `v3.2.0` tag, release and artifact names. Normal development builds identify themselves as `dev+<commit>`. Protect the `v*` tag namespace against updates and deletions with a GitHub tag ruleset.
+
+For a release that already exists, enable **Attach firmware files to an existing release from its tag**. See the [release guide](RELEASE.md#attach-firmware-files-to-an-existing-release) for the upload procedure.
 
 The workflow publishes:
 
