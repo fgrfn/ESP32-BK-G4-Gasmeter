@@ -187,15 +187,15 @@ void UsageTracker::updateContinuousFlow(float flowM3h) {
   }
 
   const uint32_t nowMs = millis();
+  const uint32_t pollGrace = Config::pollIntervalMs > 200000UL ? Config::pollIntervalMs * 3UL : 600000UL;
+  if (continuousFlowStartedMs_ != 0 && nowMs - lastPositiveFlowMs_ > pollGrace) {
+    continuousFlowStartedMs_ = 0;
+    lastPositiveFlowMs_ = 0;
+  }
+
   if (flowM3h >= Config::continuousFlowThresholdM3h) {
     if (continuousFlowStartedMs_ == 0) continuousFlowStartedMs_ = nowMs;
     lastPositiveFlowMs_ = nowMs;
-  } else if (continuousFlowStartedMs_ != 0) {
-    const uint32_t pollGrace = Config::pollIntervalMs > 200000UL ? Config::pollIntervalMs * 3UL : 600000UL;
-    if (lastPositiveFlowMs_ == 0 || nowMs - lastPositiveFlowMs_ > pollGrace) {
-      continuousFlowStartedMs_ = 0;
-      lastPositiveFlowMs_ = 0;
-    }
   }
 
   if (continuousFlowStartedMs_ == 0) {
