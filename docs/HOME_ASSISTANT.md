@@ -40,7 +40,7 @@ A monthly base fee can be added separately or apportioned per day. Replace the e
 
 ## Continuous-flow warning
 
-The warning is a plausibility indicator only. It becomes active when calculated flow remains above the configured threshold for the configured duration. Meter resolution and polling intervals affect detection speed.
+The warning indicates a period of calculated gas flow above the configured threshold. Long heating cycles can trigger it. To account for meter resolution, detections are joined across gaps of up to ten minutes or three poll intervals, whichever is longer. A longer gap starts a new period at the next detection.
 
 Do not use this entity as a replacement for a certified gas detector, emergency shutoff or professional leak inspection.
 
