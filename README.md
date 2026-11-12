@@ -1,10 +1,16 @@
-# ESP32 BK-G4 Gas Meter
+# ESP32 BK-G4AT Gas Meter Reader
 
-ESP32 gateway for reading the M-Bus encoder of a Honeywell/Elster BK-G4 gas meter and publishing reliable volume, energy and diagnostic values to MQTT and Home Assistant.
+ESP32 firmware for the Honeywell/Elster **BK-G4AT** (also written **BK-G4 AT**) with an **Absolute ENCODER**. It polls the encoder for the current meter reading over M-Bus and makes volume, energy and diagnostics available through MQTT, Home Assistant and a local WebUI.
 
-> Based on the original `BK-G4AT2MQTT` project by BennoB666. Version 3 replaces the previous parallel legacy/module implementation with one tested modular firmware.
+> Based on [BK-G4AT2MQTT](https://github.com/BennoB666/BK-G4AT2MQTT) by BennoB666.
 
 > **Personal learning project:** Built with the help of OpenAI Codex and Claude Code as a way to experiment, learn and create something useful.
+
+## Meter compatibility
+
+Check the model and look for the **ENCODER** marking on the meter index. The BK-G4AT encoder reads the digit rollers optically and exposes the complete meter reading digitally. Reed-switch pulse counting requires a pulse magnet in a compatible index, as used on standard pulse-capable BK-G4 and BK-G4T configurations. [Honeywell Absolute ENCODER](https://process.honeywell.com/us/en/products/utilities/gas/gas-metering/smart-gas-meters/absolute-encoder-ae5) · [Honeywell BK-G4/BK-G4T datasheet](https://docuthek.kromschroeder.com/download.php?doc=59327&lang=de)
+
+This firmware expects a compatible M-Bus telegram from the BK-G4AT encoder. See the [hardware guide](docs/HARDWARE.md#meter-and-interface) to identify the interface and check the telegram format before choosing an adapter.
 
 ## Features
 
@@ -29,7 +35,7 @@ Gas-price and cost forecasts are intentionally not implemented in the firmware. 
 
 ## Hardware
 
-Default wiring:
+Default wiring on the adapter's ESP32 UART side:
 
 | ESP32 | M-Bus interface |
 |---|---|
@@ -61,7 +67,7 @@ Password: admin
 
 Change both values when enabling the login. The setting, username and password are stored in NVS and remain active across normal restarts and OTA updates.
 
-Firmware 3.1.2 uses configuration schema 7. Fresh installations and factory resets start with the admin login disabled. Existing installations keep authentication enabled during the upgrade so their previous protection and credentials are preserved. Upgrading from a schema older than 6 clears the former automatically generated ArduinoOTA password once.
+The firmware uses configuration schema 7. Fresh installations and factory resets start with the admin login disabled. Existing installations keep authentication enabled during the upgrade so their previous protection and credentials are preserved. Upgrading from a schema older than 6 clears the former automatically generated ArduinoOTA password once.
 
 Holding the ESP32 BOOT button for at least three seconds during startup performs a physical factory reset. A factory reset disables the WebUI login, restores the stored credentials to `admin` / `admin` for optional later activation and leaves the ArduinoOTA password empty.
 
