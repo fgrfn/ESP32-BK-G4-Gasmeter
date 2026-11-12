@@ -22,7 +22,7 @@ There is one source of truth for configuration (`Config`) and one implementation
 
 ## M-Bus handling
 
-`MBusReader` sends the BK-G4 request frame and reads bytes without blocking the main loop. It ignores request echoes, ACK bytes and line noise until a valid long-frame header is found, then resynchronizes if a malformed header contains a later `0x68` start byte.
+`MBusReader` polls the BK-G4AT Absolute ENCODER at primary M-Bus address `0x00` and reads bytes without blocking the main loop. It ignores request echoes, ACK bytes and line noise until a valid long-frame header is found, then resynchronizes if a malformed header contains a later `0x68` start byte.
 
 Validation order:
 
@@ -30,7 +30,7 @@ Validation order:
 2. total frame length
 3. stop byte
 4. checksum over C/A/CI/data
-5. BK-G4 volume record (`DIF 0x0C`, `VIF 0x13`)
+5. BK-G4AT encoder volume record (`DIF 0x0C`, `VIF 0x13`)
 6. every BCD nibble must be 0–9
 
 The parser is independent from Arduino and covered by valid/range/error fixtures, deterministic random-input fuzzing and a host-side capture replay tool.

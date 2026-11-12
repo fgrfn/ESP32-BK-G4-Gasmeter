@@ -1,7 +1,7 @@
 # Release process
 
 1. Run `pio test -e native`, `pio run -e esp32dev`, the capture replay test and `pio check -e esp32dev --fail-on-defect high`.
-2. Flash the candidate to the target ESP32 and verify a real BK-G4 telegram, NTP synchronization, MQTT discovery, reboot handling and CSV export.
+2. Flash the candidate to the target ESP32 and verify a real BK-G4AT encoder telegram, NTP synchronization, MQTT discovery, reboot handling and CSV export.
 3. Add the final date/notes to `CHANGELOG.md`. The firmware version is supplied by the release workflow and must not be edited in source files.
 4. Commit and merge the change.
 5. On the `main` branch, run the **Release** workflow and enter an exact semantic version without a `v` prefix, such as `3.2.0`.
