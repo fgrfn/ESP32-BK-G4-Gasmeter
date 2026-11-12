@@ -131,15 +131,18 @@ void UsageTracker::addDailyRecord(const char* date, float volumeM3, float energy
   saveHistory();
 }
 
-void UsageTracker::updatePeriods(float volume, float energy, time_t now) {
+bool UsageTracker::updatePeriods(float volume, float energy, time_t now, bool meterReset) {
   UsageLogic::PeriodKeys keys;
-  if (!UsageLogic::makePeriodKeys(now, keys)) return;
+  if (!UsageLogic::makePeriodKeys(now, keys)) return false;
   bool changed = false;
 
   if (dayBaseline_ < 0.0f || strcmp(dayKey_, keys.day) != 0) {
     if (dayBaseline_ >= 0.0f && dayEnergyBaseline_ >= 0.0f && dayKey_[0] != '\0') {
-      const float completedVolume = previousVolume_ > dayBaseline_ ? previousVolume_ - dayBaseline_ : 0.0f;
-      const float completedEnergy = cumulativeEnergyKwh_ > dayEnergyBaseline_ ? cumulativeEnergyKwh_ - dayEnergyBaseline_ : 0.0f;
+      // Close both counters at the first reading of the new day. A replacement
+      // ends the old day's volume at the last reading of the old meter.
+      const float closingVolume = meterReset ? previousVolume_ : volume;
+      const float completedVolume = CoreLogic::positiveDelta(dayBaseline_, closingVolume, 0.0f);
+      const float completedEnergy = CoreLogic::positiveDelta(dayEnergyBaseline_, energy, 0.0f);
       addDailyRecord(dayKey_, completedVolume, completedEnergy);
     }
     dayBaseline_ = volume;
@@ -170,7 +173,7 @@ void UsageTracker::updatePeriods(float volume, float energy, time_t now) {
     yearEnergyBaseline_ = energy;
     changed = true;
   }
-  if (changed) saveState();
+  return changed;
 }
 
 void UsageTracker::updateContinuousFlow(float flowM3h) {
@@ -214,11 +217,12 @@ void UsageTracker::update(float rawVolumeM3, time_t now, bool timeSynchronized) 
   if (cumulativeEnergyKwh_ < 0.0f) cumulativeEnergyKwh_ = correctedVolume * energyFactor;
   else cumulativeEnergyKwh_ += positiveDelta * energyFactor;
 
+  const bool periodsChanged = timeSynchronized && now > 0 &&
+      updatePeriods(correctedVolume, cumulativeEnergyKwh_, now, meterReset);
   if (meterReset) {
     dayBaseline_ = monthBaseline_ = yearBaseline_ = correctedVolume;
     dayEnergyBaseline_ = monthEnergyBaseline_ = yearEnergyBaseline_ = cumulativeEnergyKwh_;
   }
-  if (timeSynchronized && now > 0) updatePeriods(correctedVolume, cumulativeEnergyKwh_, now);
 
   snapshot_.rawVolumeM3 = rawVolumeM3;
   snapshot_.correctedVolumeM3 = correctedVolume;
@@ -252,9 +256,9 @@ void UsageTracker::update(float rawVolumeM3, time_t now, bool timeSynchronized) 
 
   previousVolume_ = correctedVolume;
   static uint32_t lastPersist = 0;
-  if (millis() - lastPersist >= 3600000UL) {
+  if (periodsChanged || meterReset || currentReadingMs - lastPersist >= 3600000UL) {
     saveState();
-    lastPersist = millis();
+    lastPersist = currentReadingMs;
   }
 }
 

@@ -39,7 +39,7 @@ class UsageTracker {
   static void loadHistory();
   static void saveHistory();
   static void addDailyRecord(const char* date, float volumeM3, float energyKwh);
-  static void updatePeriods(float volume, float energy, time_t now);
+  static bool updatePeriods(float volume, float energy, time_t now, bool meterReset);
   static void updateContinuousFlow(float flowM3h);
   static Preferences preferences_;
   static UsageSnapshot snapshot_;
