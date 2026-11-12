@@ -27,6 +27,15 @@ bool parseFloatValue(const String& value, float& result) {
   result = std::strtof(value.c_str(), &end);
   return end && end != value.c_str() && *end == '\0';
 }
+
+template <typename T>
+bool saveSetting(T& setting, T value) {
+  const T previous = setting;
+  setting = value;
+  if (Config::save()) return true;
+  setting = previous;
+  return false;
+}
 }
 
 String MQTTHandler::topic(const char* suffix) {
@@ -354,26 +363,22 @@ void MQTTHandler::callback(char* topicValue, uint8_t* payload, unsigned int leng
 
   float parsed = 0.0f;
   if (!parseFloatValue(value, parsed)) return;
-  bool changed = false;
+  bool saved = false;
   if (isCommand("calorific_value") && parsed >= 5.0f && parsed <= 20.0f) {
-    Config::calorificValue = parsed;
-    changed = true;
+    saved = saveSetting(Config::calorificValue, parsed);
   } else if (isCommand("correction_factor") && parsed >= 0.5f && parsed <= 1.5f) {
-    Config::correctionFactor = parsed;
-    changed = true;
+    saved = saveSetting(Config::correctionFactor, parsed);
   } else if (isCommand("poll_interval_seconds") && parsed >= 10.0f && parsed <= 3600.0f) {
-    Config::pollIntervalMs = static_cast<uint32_t>(parsed * 1000.0f);
-    changed = true;
+    saved = saveSetting(Config::pollIntervalMs, static_cast<uint32_t>(parsed * 1000.0f));
   } else if (isCommand("max_flow_m3h") && parsed > 0.0f && parsed <= 100.0f) {
-    Config::maxFlowM3h = parsed;
-    changed = true;
+    const bool discoveryChanged = Config::maxFlowM3h != parsed;
+    saved = saveSetting(Config::maxFlowM3h, parsed);
+    if (saved && discoveryChanged) discoverySent_ = false;
   } else if (isCommand("continuous_flow_threshold_m3h") && parsed >= 0.0f && parsed <= Config::maxFlowM3h) {
-    Config::continuousFlowThresholdM3h = parsed;
-    changed = true;
+    saved = saveSetting(Config::continuousFlowThresholdM3h, parsed);
   } else if (isCommand("continuous_flow_alert_minutes") && parsed >= 0.0f && parsed <= 10080.0f) {
-    Config::continuousFlowAlertMinutes = static_cast<uint32_t>(parsed);
-    changed = true;
+    saved = saveSetting(Config::continuousFlowAlertMinutes, static_cast<uint32_t>(parsed));
   }
 
-  if (changed && Config::save()) publishReading(UsageTracker::snapshot());
+  if (saved) publishReading(UsageTracker::snapshot());
 }
