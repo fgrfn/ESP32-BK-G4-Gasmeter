@@ -16,7 +16,8 @@ This firmware is intended for a trusted home/IoT network. Optional HTTP Digest a
 - Sensitive HTTP endpoints require authentication outside setup AP when the optional admin login is enabled.
 - Factory reset does not use the setup-AP bypass when authentication is enabled and additionally requires the literal confirmation `RESET`.
 - API configuration responses contain empty password/CA fields and expose only whether an OTA password is configured.
-- Config export omits secrets by default. Secrets are included only with `?secrets=EXPORT` after authentication.
+- Config export redacts secrets by default. Secrets are included only with `?secrets=EXPORT` after authentication.
+- Importing a redacted export preserves the current ArduinoOTA password, including when an older export contains an empty placeholder. Use the explicit option under **Sicherheit → ArduinoOTA** to remove the password.
 - The browser firmware-upload endpoint is intentionally not present.
 
 With the admin login disabled, every host that can reach the WebUI can change configuration, view logs and trigger maintenance actions. The predictable initial WebUI credentials and unauthenticated ArduinoOTA default are intended only to simplify local commissioning. Enable the login with a unique password or strictly limit network access. Do not expose the device to the Internet or permit access to TCP/UDP port 3232 from guest, public or untrusted VLANs.

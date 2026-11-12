@@ -441,7 +441,12 @@ bool Config::importJson(JsonVariantConst root, String& error) {
   webAuthEnabled = security["web_auth_enabled"] | webAuthEnabled;
   copyJsonString(security["web_user"], webUser, sizeof(webUser));
   copyJsonSecret(security["web_password"], webPassword, sizeof(webPassword));
-  copyJsonString(security["ota_password"], otaPassword, sizeof(otaPassword));
+  if (security["ota_password_set"].is<bool>()) {
+    // Older exports used an empty placeholder for the redacted OTA password.
+    copyJsonSecret(security["ota_password"], otaPassword, sizeof(otaPassword));
+  } else {
+    copyJsonString(security["ota_password"], otaPassword, sizeof(otaPassword));
+  }
   copyJsonString(root["timezone"], timezone, sizeof(timezone));
 
   ensureDefaultMqttTopic();
@@ -498,7 +503,7 @@ void Config::toJson(JsonObject root, bool includeSecrets) {
   security["web_auth_enabled"] = webAuthEnabled;
   security["web_user"] = webUser;
   security["web_password"] = includeSecrets ? webPassword : "";
-  security["ota_password"] = includeSecrets ? otaPassword : "";
+  if (includeSecrets) security["ota_password"] = otaPassword;
   security["ota_password_set"] = otaPassword[0] != '\0';
 
   JsonObject hardware = root["hardware"].to<JsonObject>();
