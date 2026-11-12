@@ -7,6 +7,10 @@ on:
         description: "Semantic firmware version (for example 2.1.3 or v2.1.3)"
         required: true
         type: string
+      attach_existing:
+        description: "Attach firmware files to an existing release from its tag"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -18,25 +22,40 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release_version.outputs.version }}
+      commit: ${{ steps.release_version.outputs.commit }}
+      artifact: ${{ steps.release_version.outputs.artifact }}
     env:
       ESP_SIGNING_KEY: ${{ secrets.ESP_SIGNING_KEY }}
       GASMETER_VERSION: ${{ inputs.version }}
+      ATTACH_EXISTING: ${{ inputs.attach_existing }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - name: Validate release version
+      - name: Validate release version and select source
         id: release_version
         shell: bash
         run: |
           GASMETER_VERSION="${GASMETER_VERSION#v}"
-          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
-            echo "Releases must be started from the main branch" >&2
-            exit 1
-          fi
           if [[ ! "$GASMETER_VERSION" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "Version must be an exact semantic version such as 3.2.0" >&2
+            exit 1
+          fi
+          echo "GASMETER_VERSION=${GASMETER_VERSION}" >> "$GITHUB_ENV"
+          echo "version=${GASMETER_VERSION}" >> "$GITHUB_OUTPUT"
+          if [[ "$ATTACH_EXISTING" == "true" ]]; then
+            tag="v${GASMETER_VERSION}"
+            gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName
+            git checkout --detach "refs/tags/$tag"
+            echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            echo "artifact=release-package-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "New releases must be started from the main branch" >&2
             exit 1
           fi
           if git show-ref --verify --quiet "refs/tags/v${GASMETER_VERSION}"; then
@@ -63,8 +82,6 @@ jobs:
               exit 1
             fi
           fi
-          echo "GASMETER_VERSION=${GASMETER_VERSION}" >> "$GITHUB_ENV"
-          echo "version=${GASMETER_VERSION}" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -96,8 +113,17 @@ jobs:
           rm -f /tmp/secure-boot-signing-key.pem
       - name: Create checksums
         shell: bash
-        run: sha256sum release/*.bin > release/SHA256SUMS
+        working-directory: release
+        run: sha256sum *.bin > SHA256SUMS
+      - name: Stage the release package
+        if: inputs.attach_existing
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ steps.release_version.outputs.artifact }}
+          path: release/
+          if-no-files-found: error
       - name: Publish release and version tag
+        if: ${{ ! inputs.attach_existing }}
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.release_version.outputs.version }}
@@ -105,3 +131,47 @@ jobs:
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           files: release/*
+
+  attach-assets:
+    if: inputs.attach_existing
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: v${{ needs.release.outputs.version }}
+      BUILD_COMMIT: ${{ needs.release.outputs.commit }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/v${{ needs.release.outputs.version }}
+      - uses: actions/download-artifact@v8
+        with:
+          name: ${{ needs.release.outputs.artifact }}
+          path: release
+      - name: Attach firmware files to the existing release
+        shell: bash
+        run: |
+          if [[ "$(git rev-parse HEAD)" != "$BUILD_COMMIT" ]]; then
+            echo "The release tag moved after the package was built" >&2
+            exit 1
+          fi
+          cd release
+          sha256sum --check SHA256SUMS
+          assets=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          missing=()
+          for file in *.bin SHA256SUMS; do
+            if grep -Fxq "$file" <<< "$assets"; then
+              existing_digest=$(gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern "$file" --output - | sha256sum)
+              if [[ "$existing_digest" != "$(sha256sum < "$file")" ]]; then
+                echo "Existing release asset differs from the package: $file" >&2
+                exit 1
+              fi
+            else
+              missing+=("$file")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" "${missing[@]}"
+          else
+            echo "All package files are already attached"
+          fi
