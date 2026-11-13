@@ -1,6 +1,8 @@
 name: Release
 
 on:
+  release:
+    types: [published]
   workflow_dispatch:
     inputs:
       version:
@@ -28,8 +30,8 @@ jobs:
       artifact: ${{ steps.release_version.outputs.artifact }}
     env:
       ESP_SIGNING_KEY: ${{ secrets.ESP_SIGNING_KEY }}
-      GASMETER_VERSION: ${{ inputs.version }}
-      ATTACH_EXISTING: ${{ inputs.attach_existing }}
+      GASMETER_VERSION: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.version }}
+      ATTACH_EXISTING: ${{ github.event_name == 'release' || inputs.attach_existing }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v7
@@ -50,7 +52,12 @@ jobs:
             tag="v${GASMETER_VERSION}"
             gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName
             git checkout --detach "refs/tags/$tag"
-            echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+            commit=$(git rev-parse HEAD)
+            if [[ "$GITHUB_EVENT_NAME" == "release" && "$commit" != "$GITHUB_SHA" ]]; then
+              echo "The release tag moved after publication" >&2
+              exit 1
+            fi
+            echo "commit=$commit" >> "$GITHUB_OUTPUT"
             echo "artifact=release-package-${GITHUB_RUN_ATTEMPT}" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -116,14 +123,14 @@ jobs:
         working-directory: release
         run: sha256sum *.bin > SHA256SUMS
       - name: Stage the release package
-        if: inputs.attach_existing
+        if: steps.release_version.outputs.artifact != ''
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.release_version.outputs.artifact }}
           path: release/
           if-no-files-found: error
       - name: Publish release and version tag
-        if: ${{ ! inputs.attach_existing }}
+        if: steps.release_version.outputs.artifact == ''
         uses: softprops/action-gh-release@v3
         with:
           tag_name: v${{ steps.release_version.outputs.version }}
@@ -133,7 +140,7 @@ jobs:
           files: release/*
 
   attach-assets:
-    if: inputs.attach_existing
+    if: needs.release.outputs.artifact != ''
     needs: release
     runs-on: ubuntu-latest
     env:

@@ -11,7 +11,9 @@ The workflow validates that the version is newer than the latest release, preven
 
 ## Attach firmware files to an existing release
 
-In **Actions → Release → Run workflow**, enter the existing release version and enable **Attach firmware files to an existing release from its tag**. The workflow builds the tagged source, stages the tested package as a workflow artifact and uploads missing files to that release. If the upload job fails, rerun that job to reuse the same package. Matching files are reused and conflicting files stop the upload.
+Publishing a release with a tag such as `v2.2.1` from the GitHub Releases page also starts a build. The action builds the tagged source and attaches the OTA image, factory image and checksums when the build completes.
+
+For a release published before this workflow was available, use **Actions → Release → Run workflow**, enter the existing release version and enable **Attach firmware files to an existing release from its tag**. If the upload job fails, rerun that job to reuse the staged package. Matching files are reused and conflicting files stop the upload.
 
 ## Using the release files
 
