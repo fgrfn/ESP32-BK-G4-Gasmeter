@@ -105,7 +105,7 @@ void WebServerManager::registerRoutes() {
   });
 
   server_.on("/manifest.json", HTTP_GET, [](AsyncWebServerRequest* request) {
-    request->send(200, "application/manifest+json", R"({"name":"ESP32 Gaszähler","short_name":"Gaszähler","start_url":"/","display":"standalone","background_color":"#090b0e","theme_color":"#111418"})");
+    request->send(200, "application/manifest+json", R"({"name":"ESP32 Gas Meter","short_name":"Gas Meter","lang":"en","start_url":"/","display":"standalone","background_color":"#090b0e","theme_color":"#111418"})");
   });
   server_.on("/sw.js", HTTP_GET, [](AsyncWebServerRequest* request) {
     String script = "const C='gas-" FIRMWARE_VERSION "-ui';self.addEventListener('install',e=>e.waitUntil(caches.open(C).then(c=>c.add('/'))));self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==C).map(x=>caches.delete(x))))));self.addEventListener('fetch',e=>e.respondWith(fetch(e.request).catch(()=>caches.match(e.request))));";

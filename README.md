@@ -4,7 +4,7 @@ ESP32 firmware for the Honeywell/Elster **BK-G4AT** (**BK-G4 AT**) with an **Abs
 
 ![Local WebUI showing the meter register, flow and consumption periods](Screenshot.png)
 
-*WebUI overview with example readings.*
+*WebUI overview with example readings. English is the default. Choose Deutsch in the header to switch this browser to German.*
 
 ## Compatibility and wiring
 
@@ -20,7 +20,7 @@ Download the **`*-factory.bin`** and `SHA256SUMS` from [GitHub Releases](https:/
 2. Join `ESP32-Gas-XXXXXX` using the setup password printed in the serial log.
 3. Open `http://192.168.4.1`, enter Wi-Fi and MQTT settings, then restart the ESP32.
 
-For a fresh installation, configure the optional WebUI login and ArduinoOTA password under **Sicherheit**. The WebUI login starts disabled. If enabled, replace the initial `admin` / `admin` credentials. See [Security](SECURITY.md) for network access and password settings.
+For a fresh installation, configure the optional WebUI login and ArduinoOTA password under **Security**. The WebUI login starts disabled. If enabled, replace the initial `admin` / `admin` credentials. See [Security](SECURITY.md) for network access and password settings.
 
 ## Update over Wi-Fi
 
